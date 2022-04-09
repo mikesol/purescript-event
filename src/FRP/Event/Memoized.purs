@@ -117,6 +117,7 @@ instance isEvent :: Class.IsEvent Event where
         ( memoizeIfMemoized [ mkExists (let Event i = io.input in i), mkExists (let Event o = io.output in o) ]
             (fix $ dimap Event coerce f)
         )
+  bang = bang
 
 bang :: forall a. a -> Event a
 bang a =  (Event (unsafeMemoizeImpl (Event.bang a)))

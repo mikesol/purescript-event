@@ -89,6 +89,7 @@ instance eventIsEvent :: Class.IsEvent Event where
   keepLatest = keepLatest
   sampleOn = sampleOn
   fix = fix
+  bang = bang
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
