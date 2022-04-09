@@ -175,7 +175,7 @@ main = do
                   unsafePerformEffect do
                     Ref.modify_ (add 1) count
                     pure $ v
-              let mapped = memoize (map fn event)
+              mapped <- memoize (map fn event)
               unsub1 <- Event.subscribe mapped (pure (pure unit))
               unsub2 <- Event.subscribe mapped (pure (pure unit))
               push 0

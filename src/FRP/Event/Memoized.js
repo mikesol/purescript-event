@@ -66,7 +66,12 @@ var memoize = function memoize(event) {
 	e.p$mmz = true;
 	return e;
 };
-exports.memoizeImpl = memoize;
+exports.memoizeImpl = function(e) {
+  return function() {
+    return memoize(e);
+  }
+}
+exports.unsafeMemoizeImpl = memoize;
 exports.isMemoizedImpl = function (e) {
 	return e.p$mmz === true;
 };

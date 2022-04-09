@@ -26,17 +26,18 @@ import FRP.Event as Event
 import FRP.Event.Class (class Filterable, class IsEvent, biSampleOn, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
 import Safe.Coerce (coerce)
 
+foreign import unsafeMemoizeImpl :: Event.Event ~> Event.Event
 -- | Memoize an event. **Memoized** events only initialize once.
 -- | For example, if you create a
 -- | memoized counter, it will start on the first subscription and subsequent
 -- | subscriptions will subscribe to the _same_ counter.
-foreign import memoizeImpl :: Event.Event ~> Event.Event
+foreign import memoizeImpl :: forall a. Event.Event a -> Effect (Event.Event a)
 -- | Is an event memoized?
 foreign import isMemoizedImpl :: forall a. Event.Event a -> Boolean
 
 class MemoizableEvent :: forall k. (k -> Type) -> Constraint
 class MemoizableEvent e where
-  memoize :: e ~> e
+  memoize :: forall a. e a -> Effect (e a)
   isMemoized :: forall a. e a -> Boolean
 
 instance memoizableEvent :: MemoizableEvent Event.Event where
@@ -45,8 +46,8 @@ instance memoizableEvent :: MemoizableEvent Event.Event where
 
 derive newtype instance memoizableMemoizableEvent :: MemoizableEvent Event
 
-memoizeIfMemoized :: forall event0 event1. MemoizableEvent event0 => MemoizableEvent event1 => Array (Exists event0) -> event1 ~> event1
-memoizeIfMemoized a e = if foldl (&&) true (map (runExists isMemoized) a) then memoize e else e
+memoizeIfMemoized :: Array (Exists Event.Event) -> Event.Event ~> Event.Event
+memoizeIfMemoized a e = if foldl (&&) true (map (runExists isMemoized) a) then unsafeMemoizeImpl e else e
 
 -- | An `Event` represents a collection of discrete occurrences with associated
 -- | times. Conceptually, an `Event` is a (possibly-infinite) list of values-and-times:
@@ -102,7 +103,7 @@ instance altEvent :: Alt Event where
   alt (Event a) (Event b) = Event (memoizeIfMemoized [ mkExists a, mkExists b ] (alt a b))
 
 instance plusEvent :: Plus Event where
-  empty = Event (memoize empty)
+  empty = Event (unsafeMemoizeImpl empty)
 
 instance isEvent :: Class.IsEvent Event where
   fold abb (Event a) b = Event (memoizeIfMemoized [ mkExists a ] (fold abb a b))
@@ -113,12 +114,12 @@ instance isEvent :: Class.IsEvent Event where
       io = f empty
     in
       Event
-        ( memoizeIfMemoized [ mkExists io.input, mkExists io.output ]
+        ( memoizeIfMemoized [ mkExists (let Event i = io.input in i), mkExists (let Event o = io.output in o) ]
             (fix $ dimap Event coerce f)
         )
 
 bang :: forall a. a -> Event a
-bang a = memoize (Event (Event.bang a))
+bang a =  (Event (unsafeMemoizeImpl (Event.bang a)))
 
 -- | Subscribe to an `Event` by providing a callback.
 -- |
