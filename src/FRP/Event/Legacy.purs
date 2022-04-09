@@ -5,7 +5,10 @@ import Prelude
 import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
 import Data.Compactable (class Compactable)
+import Data.Foldable (traverse_)
+import Data.Maybe (Maybe(..))
 import Effect (Effect)
+import Effect.Ref as Ref
 import FRP.Event (class Filterable)
 import FRP.Event as Class
 import FRP.Event as Event
@@ -19,7 +22,19 @@ derive newtype instance functorEvent :: Functor Event
 derive newtype instance compactableEvent :: Compactable Event
 derive newtype instance filterableEvent :: Filterable Event
 instance applyEvent :: Apply Event where
-  apply = flip biSampleOn
+  apply (Event e1) (Event e2) =
+    Event $ Event.makeEvent \k -> do
+      latestA <- Ref.new Nothing
+      latestB <- Ref.new Nothing
+      c1 <-
+        Event.subscribe e1 \a -> do
+          Ref.write (Just a) latestA
+          Ref.read latestB >>= traverse_ (k <<< a)
+      c2 <-
+        Event.subscribe  e2 \b -> do
+          Ref.write (Just b) latestB
+          Ref.read latestA >>= traverse_ (k <<< (_ $ b))
+      pure (c1 *> c2)
 
 instance applicativeEvent :: Applicative Event where
   pure = Event <<< Event.bang

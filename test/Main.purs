@@ -198,3 +198,11 @@ main = do
               Ref.read count >>= shouldEqual 1
               unsub1
               unsub2
+          it "wat" $ liftEffect do
+            rf <- Ref.new []
+            { push, event } <- Legacy.create
+            unsub <- Legacy.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
+            push 2
+            push 1
+            o <- liftEffect $ Ref.read rf
+            o `shouldEqual` [ 2,3,4 ]
