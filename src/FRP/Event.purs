@@ -4,12 +4,12 @@ module FRP.Event
   , create
   , makeEvent
   , subscribe
+  , bang
   , module Class
   ) where
 
 import Prelude
-import Control.Alternative (class Alt, class Alternative, class Plus)
-import Control.Apply (lift2)
+import Control.Alternative (class Alt, class Plus)
 import Data.Array (deleteBy)
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
@@ -33,8 +33,7 @@ import Unsafe.Reference (unsafeRefEq)
 -- | combined using the various functions and instances provided in this module.
 -- |
 -- | Events are consumed by providing a callback using the `subscribe` function.
-newtype Event a
-  = Event ((a -> Effect Unit) -> Effect (Effect Unit))
+newtype Event a = Event ((a -> Effect Unit) -> Effect (Effect Unit))
 
 instance functorEvent :: Functor Event where
   map f (Event e) = Event \k -> e (k <<< f)
@@ -75,27 +74,6 @@ instance filterableEvent :: Filterable Event where
     , right: filterMap (hush <<< f) xs
     }
 
-instance applyEvent :: Apply Event where
-  apply (Event e1) (Event e2) =
-    Event \k -> do
-      latestA <- Ref.new Nothing
-      latestB <- Ref.new Nothing
-      c1 <-
-        e1 \a -> do
-          Ref.write (Just a) latestA
-          Ref.read latestB >>= traverse_ (k <<< a)
-      c2 <-
-        e2 \b -> do
-          Ref.write (Just b) latestB
-          Ref.read latestA >>= traverse_ (k <<< (_ $ b))
-      pure (c1 *> c2)
-
-instance applicativeEvent :: Applicative Event where
-  pure a =
-    Event \k -> do
-      k a
-      pure (pure unit)
-
 instance altEvent :: Alt Event where
   alt (Event f) (Event g) =
     Event \k -> do
@@ -105,14 +83,6 @@ instance altEvent :: Alt Event where
 
 instance plusEvent :: Plus Event where
   empty = Event \_ -> pure (pure unit)
-
-instance alternativeEvent :: Alternative Event
-
-instance semigroupEvent :: Semigroup a => Semigroup (Event a) where
-  append = lift2 append
-
-instance monoidEvent :: Monoid a => Monoid (Event a) where
-  mempty = pure mempty
 
 instance eventIsEvent :: Class.IsEvent Event where
   fold = fold
@@ -179,11 +149,11 @@ fix f =
 -- | Subscribe to an `Event` by providing a callback.
 -- |
 -- | `subscribe` returns a canceller function.
-subscribe ::
-  forall a.
-  Event a ->
-  (a -> Effect Unit) ->
-  Effect (Effect Unit)
+subscribe
+  :: forall a
+   . Event a
+  -> (a -> Effect Unit)
+  -> Effect (Effect Unit)
 subscribe (Event e) k = e k
 
 -- | Make an `Event` from a function which accepts a callback and returns an
@@ -191,21 +161,21 @@ subscribe (Event e) k = e k
 -- |
 -- | Note: you probably want to use `create` instead, unless you need explicit
 -- | control over unsubscription.
-makeEvent ::
-  forall a.
-  ((a -> Effect Unit) -> Effect (Effect Unit)) ->
-  Event a
+makeEvent
+  :: forall a
+   . ((a -> Effect Unit) -> Effect (Effect Unit))
+  -> Event a
 makeEvent = Event
 
-type EventIO a
-  = { event :: Event a
-    , push :: a -> Effect Unit
-    }
+type EventIO a =
+  { event :: Event a
+  , push :: a -> Effect Unit
+  }
 
 -- | Create an event and a function which supplies a value to that event.
-create ::
-  forall a.
-  Effect (EventIO a)
+create
+  :: forall a
+   . Effect (EventIO a)
 create = do
   subscribers <- Ref.new []
   pure
@@ -219,3 +189,9 @@ create = do
         \a -> do
           Ref.read subscribers >>= traverse_ \k -> k a
     }
+
+bang :: forall a. a -> Event a
+bang a =
+  Event \k -> do
+    k a
+    pure (pure unit)

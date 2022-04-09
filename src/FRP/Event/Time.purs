@@ -8,6 +8,7 @@ module FRP.Event.Time
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Data.DateTime.Instant (Instant, instant, unInstant)
 import Data.Foldable (for_)
 import Data.Maybe (Maybe(..), fromMaybe, maybe)
@@ -16,7 +17,7 @@ import Data.Time.Duration (Milliseconds)
 import Effect.Now (now)
 import Effect.Ref as Ref
 import Effect.Timer (TimeoutId, clearInterval, clearTimeout, setInterval, setTimeout)
-import FRP.Event (Event, makeEvent, subscribe)
+import FRP.Event (Event, bang, makeEvent, subscribe)
 import FRP.Event.Class (fix, gateBy)
 
 -- | Create an event which fires every specified number of milliseconds.
@@ -41,33 +42,32 @@ debounce period = debounceWith (map { period, value: _ })
 -- | Provided an input event and transformation, block the input event for the
 -- | duration of the specified period on each output.
 debounceWith
-  :: forall a b.
-     (Event a -> Event { period :: Milliseconds, value :: b })
+  :: forall a b
+   . (Event a -> Event { period :: Milliseconds, value :: b })
   -> Event a
   -> Event b
-debounceWith process event
-  = fix \allowed ->
-      let
-        processed :: Event { period :: Milliseconds, value :: b }
-        processed = process allowed
+debounceWith process event = fix \allowed ->
+  let
+    processed :: Event { period :: Milliseconds, value :: b }
+    processed = process allowed
 
-        expiries :: Event Instant
-        expiries =
-          map (\{ time, value } -> fromMaybe time (instant (unInstant time <> value)))
-              (withTime (map _.period processed))
+    expiries :: Event Instant
+    expiries =
+      map (\{ time, value } -> fromMaybe time (instant (unInstant time <> value)))
+        (withTime (map _.period processed))
 
-        comparison :: forall r. Maybe Instant -> { time :: Instant | r } -> Boolean
-        comparison a b = maybe true (_ < b.time) a
+    comparison :: forall r. Maybe Instant -> { time :: Instant | r } -> Boolean
+    comparison a b = maybe true (_ < b.time) a
 
-        unblocked :: Event { time :: Instant, value :: a }
-        unblocked = gateBy comparison expiries stamped
-      in
-        { input:  map _.value unblocked
-        , output: map _.value processed
-        }
+    unblocked :: Event { time :: Instant, value :: a }
+    unblocked = gateBy comparison (bang Nothing <|> map Just expiries) stamped
+  in
+    { input: map _.value unblocked
+    , output: map _.value processed
+    }
   where
-    stamped :: Event { time :: Instant, value :: a }
-    stamped = withTime event
+  stamped :: Event { time :: Instant, value :: a }
+  stamped = withTime event
 
 delay :: forall a. Int -> Event a -> Event a
 delay n e =

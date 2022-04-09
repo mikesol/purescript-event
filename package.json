@@ -19,6 +19,7 @@
   "homepage": "https://github.com/mikesol/purescript-event#readme",
   "devDependencies": {
     "purescript": "^0.14.0",
+    "purs-tidy": "^0.7.2",
     "spago": "^0.20.0"
   }
 }

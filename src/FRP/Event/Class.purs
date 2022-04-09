@@ -5,6 +5,7 @@ module FRP.Event.Class
   , count
   , mapAccum
   , withLast
+  , biSampleOn
   , sampleOn
   , sampleOn_
   , keepLatest
@@ -16,10 +17,10 @@ module FRP.Event.Class
 
 import Prelude
 
-import Control.Alternative (class Alternative, (<|>))
+import Control.Alternative (class Plus, (<|>))
 import Data.Compactable (compact)
 import Data.Filterable (class Filterable, filterMap)
-import Data.Maybe (Maybe(..), fromMaybe)
+import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), snd)
 
 -- | Functions which an `Event` type should implement:
@@ -31,7 +32,7 @@ import Data.Tuple (Tuple(..), snd)
 -- | - `sampleOn`: samples an event at the times when a second event fires.
 -- | - `fix`: compute a fixed point, by feeding output events back in as
 -- | inputs.
-class (Alternative event, Filterable event) <= IsEvent event where
+class (Plus event, Filterable event) <= IsEvent event where
   fold :: forall a b. (a -> b -> b) -> event a -> b -> event b
   keepLatest :: forall a. event (event a) -> event a
   sampleOn :: forall a b. event a -> event (a -> b) -> event b
@@ -47,8 +48,9 @@ folded s = fold append s mempty
 
 -- | Compute differences between successive event values.
 withLast :: forall event a. IsEvent event => event a -> event { now :: a, last :: Maybe a }
-withLast e = filterMap identity (fold step e Nothing) where
-  step a Nothing           = Just { now: a, last: Nothing }
+withLast e = filterMap identity (fold step e Nothing)
+  where
+  step a Nothing = Just { now: a, last: Nothing }
   step a (Just { now: b }) = Just { now: a, last: Just b }
 
 -- | Map over an event with an accumulator.
@@ -69,23 +71,25 @@ mapAccum f xs acc = filterMap snd
 sampleOn_ :: forall event a b. IsEvent event => event a -> event b -> event a
 sampleOn_ a b = sampleOn a (b $> identity)
 
+-- | Creates a bi-directional `sampleOn`. That is, the first event samples on the second and vice versa.
+biSampleOn :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
+biSampleOn a b = sampleOn a b <|> sampleOn b (map (#) a)
+
 -- | Sample the events that are fired while a boolean event is true. Note that,
 -- | until the boolean event fires, it will be assumed to be `false`, and events
 -- | will be blocked.
 gate :: forall a event. IsEvent event => event Boolean -> event a -> event a
-gate = gateBy (\x _ -> fromMaybe false x)
+gate = gateBy (identity const)
 
 -- | Generalised form of `gateBy`, allowing for any predicate between the two
--- | events. Until a value from the first event is received, `Nothing` will be
--- | passed to the predicate.
+-- | events. The predicate will not be evaluated until a value from the first event is received.
 gateBy
   :: forall a b event
    . IsEvent event
-  => (Maybe a -> b -> Boolean)
+  => (a -> b -> Boolean)
   -> event a
   -> event b
   -> event b
-gateBy f sampled
-   = compact
- <<< sampleOn (pure Nothing <|> (Just <$> sampled))
- <<< map \x p -> if f p x then Just x else Nothing
+gateBy f sampled = compact
+  <<< sampleOn sampled
+  <<< map \x p -> if f p x then Just x else Nothing
