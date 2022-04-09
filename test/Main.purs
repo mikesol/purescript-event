@@ -182,3 +182,19 @@ main = do
               Ref.read count >>= shouldEqual 1
               unsub1
               unsub2
+          it "should memoize when using memoize" do
+            liftEffect do
+              { push, event } <- Memoized.create
+              count <- Ref.new 0
+              let
+                fn v =
+                  unsafePerformEffect do
+                    Ref.modify_ (add 1) count
+                    pure $ v
+              let mapped = identity (map fn event)
+              unsub1 <- Memoized.subscribe mapped (pure (pure unit))
+              unsub2 <- Memoized.subscribe mapped (pure (pure unit))
+              push 0
+              Ref.read count >>= shouldEqual 1
+              unsub1
+              unsub2

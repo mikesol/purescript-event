@@ -134,6 +134,8 @@ subscribe (Event e) = Event.subscribe e
 -- | Make an `Event` from a function which accepts a callback and returns an
 -- | unsubscription function.
 -- |
+-- | Note: these events are _NOT_ memoized. To memoize them, you _MUST_ call
+-- | memoize explicitly.
 -- | Note: you probably want to use `create` instead, unless you need explicit
 -- | control over unsubscription.
 makeEvent
@@ -148,7 +150,8 @@ type EventIO a =
   }
 
 -- | Create an event and a function which supplies a value to that event.
+-- | Events created using create can be memoized.
 create
   :: forall a
    . Effect (EventIO a)
-create = Event.create <#> \i -> i { event = Event i.event }
+create = Event.create <#> \i -> i { event = Event $ unsafeMemoizeImpl i.event }
