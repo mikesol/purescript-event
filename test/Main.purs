@@ -17,7 +17,8 @@ import FRP.Event (sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Legacy as Legacy
-import FRP.Event.Memoized (memoize)
+import FRP.Event.Memoizable as Memoizable
+import FRP.Event.Memoize (memoize, memoizeIfMemoizable)
 import FRP.Event.Memoized as Memoized
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -148,6 +149,7 @@ main = do
         suite "Event" Event.bang Event.create Event.subscribe
         suite "Legacy" pure Legacy.create Legacy.subscribe
         suite "Memoized" Memoized.bang Memoized.create Memoized.subscribe
+        suite "Memoizable" Memoizable.bang Memoizable.create Memoizable.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -182,7 +184,7 @@ main = do
               Ref.read count >>= shouldEqual 1
               unsub1
               unsub2
-          it "should memoize when using memoize" do
+          it "should memoize when using Memoized.Event" do
             liftEffect do
               { push, event } <- Memoized.create
               count <- Ref.new 0
@@ -196,6 +198,38 @@ main = do
               unsub2 <- Memoized.subscribe mapped (pure (pure unit))
               push 0
               Ref.read count >>= shouldEqual 1
+              unsub1
+              unsub2
+          it "should memoize when using Memoizable.Event if we ask for it explicitly" do
+            liftEffect do
+              { push, event } <- Memoizable.create
+              count <- Ref.new 0
+              let
+                fn v =
+                  unsafePerformEffect do
+                    Ref.modify_ (add 1) count
+                    pure $ v
+              let mapped = identity (memoizeIfMemoizable (map fn (map identity (map identity (map identity event)))))
+              unsub1 <- Memoizable.subscribe mapped (pure (pure unit))
+              unsub2 <- Memoizable.subscribe mapped (pure (pure unit))
+              push 0
+              Ref.read count >>= shouldEqual 1
+              unsub1
+              unsub2
+          it "should _not_ memoize when using Memoizable.Event if we _don't_ ask for it explicitly" do
+            liftEffect do
+              { push, event } <- Memoizable.create
+              count <- Ref.new 0
+              let
+                fn v =
+                  unsafePerformEffect do
+                    Ref.modify_ (add 1) count
+                    pure $ v
+              let mapped = identity (map fn (map identity (map identity (map identity event))))
+              unsub1 <- Memoizable.subscribe mapped (pure (pure unit))
+              unsub2 <- Memoizable.subscribe mapped (pure (pure unit))
+              push 0
+              Ref.read count >>= shouldEqual 2
               unsub1
               unsub2
         describe "Legacy" do

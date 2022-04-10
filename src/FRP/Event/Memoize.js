@@ -63,9 +63,13 @@ var memoize = function memoize(event) {
 			};
 		};
 	};
-	e.p$mmz = true;
+	e.p$mmzbl = true;
+	e.p$mmzd = true;
 	return e;
 };
+exports.memoizeIfMemoizableImpl = function (e) {
+		return e.p$mmzbl ? memoize(e) : e;
+}
 exports.memoizeImpl = function(e) {
   return function() {
     return memoize(e);
@@ -73,5 +77,8 @@ exports.memoizeImpl = function(e) {
 }
 exports.unsafeMemoizeImpl = memoize;
 exports.isMemoizedImpl = function (e) {
-	return e.p$mmz === true;
+	return e.p$mmzd === true;
+};
+exports.isMemoizableImpl = function (e) {
+	return e.p$mmzbl = true;
 };
