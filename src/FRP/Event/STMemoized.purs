@@ -9,7 +9,7 @@ import Data.Filterable (class Compactable, class Filterable, filterMap, partitio
 import Data.Maybe (Maybe(..))
 import Effect (Effect)
 import FRP.Event (class IsEvent, Event, keepLatest, makeEvent, subscribe)
-import FRP.Event.Memoize (isMemoizable, memoizeIfMemoizable)
+import FRP.Event.Memoize (isMemoizable, memoizeIfMemoizable, unsafeMemoize)
 
 data STMemoized (r :: Type) (a :: Type)
 
@@ -95,9 +95,14 @@ removeSubscription = removeSubscription_
 
 foreign import mmzStart_ :: forall r a. Event a -> STMemoized r a
 
+-- | Run an event in a memoized context
+-- | If the event is not memoizable, it will be run in a non-memoized context using the same
+-- | input function
 run :: forall a o. Event a -> (forall event. IsEvent event => event a -> o) -> o
 run e a = run' e a a
 
+-- | Run an event in a memoized context
+-- | If the event is not memoizable, it will be run in a non-memoized context.
 run' :: forall a o. Event a -> (forall r. STMemoized r a -> o) -> (Event a -> o) -> o
 run' e' f1 f2 = if isMemoizable e' then go (memoizeIfMemoizable e') else f2 e'
   where
@@ -111,8 +116,9 @@ run' e' f1 f2 = if isMemoizable e' then go (memoizeIfMemoizable e') else f2 e'
 
 foreign import actualizeMMZ_ :: forall r a. STMemoized r a -> Effect Unit
 
+-- | Change an ST memmoized event to an event
 toEvent :: forall r a. STMemoized r a -> Event a
-toEvent mmz = makeEvent \k -> do
+toEvent mmz = unsafeMemoize $ makeEvent \k -> do
   actualizeMMZ_ mmz
   addSubscription k mmz
   pure $ removeSubscription k mmz
