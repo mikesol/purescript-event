@@ -195,9 +195,8 @@ main = do
             -> (forall i o. event i -> (event i -> event o) -> event o)
             -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
             -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
-            -> (forall a. Array (event a) -> event a)
             -> Spec Unit
-          performanceSuite name context create subscribe merger =
+          performanceSuite name context create subscribe =
             describe ("Performance testing " <> name) do
               it "handles 10 subscriptions with a simple event and 1000 pushes" do
                 liftEffect do
@@ -235,16 +234,27 @@ main = do
                   starts <- getTime <$> now
                   rf <- Ref.new []
                   { push, event } <- create
-                  let e = context event (\i -> merger $ replicate 100 $ foldr ($) i (replicate 10 (map (add 1))))
+                  let e = context event (\i -> oneOf $ replicate 100 $ foldr ($) i (replicate 10 (map (add 1))))
                   unsub <- subscribe e \i -> Ref.modify_ (cons i) rf
                   for_ (replicate 100 3) \i -> push i
                   unsub
                   ends <- getTime <$> now
                   write ("Duration: " <> show (ends - starts) <> "\n")
-        performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe oneOf
-        performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe oneOf
-        performanceSuite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe oneOf
-        performanceSuite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe oneOf
+              it "handles 1 subscription with a 10-nested event + array of 100 and 100 pushes" do
+                liftEffect do
+                  starts <- getTime <$> now
+                  rf <- Ref.new []
+                  { push, event } <- create
+                  let e = context event (\i -> map (replicate 100) $ foldr ($) i (replicate 10 (map (add 1))))
+                  unsub <- subscribe e \i -> Ref.modify_ (cons i) rf
+                  for_ (replicate 100 3) \i -> push i
+                  unsub
+                  ends <- getTime <$> now
+                  write ("Duration: " <> show (ends - starts) <> "\n")
+        performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
+        performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
+        performanceSuite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe
+        performanceSuite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
