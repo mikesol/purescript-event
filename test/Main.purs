@@ -36,7 +36,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   unsub <- subscribe ((bang 0)) \i -> Ref.modify_ (cons i) rf
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
                   unsub
               it "should do complex stuff" do
@@ -46,13 +46,13 @@ main = do
                   let event' = event
                   unsub1 <- subscribe event' \i -> Ref.modify_ (cons i) rf
                   push 0
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
                   unsub2 <- subscribe event' \i -> Ref.modify_ (cons (negate i)) rf
-                  o' <- liftEffect $ Ref.read rf
+                  o' <- Ref.read rf
                   o' `shouldEqual` [ 0 ]
                   push 1
-                  o'' <- liftEffect $ Ref.read rf
+                  o'' <- Ref.read rf
                   o'' `shouldEqual` [ -1, 1, 0 ]
                   unsub1 *> unsub2
               it "should do a lot more complex addition" do
@@ -63,7 +63,7 @@ main = do
                   let add3 = map (add 3) add2
                   let add4 = (map (add 4) add3)
                   unsub <- subscribe (add1 <|> add4) \i -> Ref.modify_ (cons i) rf
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 10, 1 ]
                   unsub
               it "should handle alt" do
@@ -75,7 +75,7 @@ main = do
                   let add4 = map (add 4) add3
                   let altr = (add1 <|> add2 <|> empty <|> add4 <|> empty)
                   unsub <- subscribe (add1 <|> altr) \i -> Ref.modify_ (cons i) rf
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 10, 3, 1, 1 ]
                   unsub
               it "should handle filter 1" do
@@ -88,12 +88,12 @@ main = do
                   let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
                   let fm = (filter (_ < 5) altr)
                   unsub <- subscribe (add1 <|> fm) (\i -> Ref.modify_ (cons i) rf)
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 3, 1, 1 ]
                   unsub
               it "should handle filter 2" do
                 liftEffect do
-                  rf <- liftEffect $ Ref.new []
+                  rf <- Ref.new []
                   let add1 = (map (add 1) (bang 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
@@ -101,7 +101,7 @@ main = do
                   let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
                   let fm = (filter (_ > 5) altr)
                   unsub <- subscribe (add1 <|> fm) (\i -> Ref.modify_ (cons i) rf)
-                  o <- liftEffect $ Ref.read rf
+                  o <- Ref.read rf
                   o `shouldEqual` [ 10, 1 ]
                   unsub
               it "should handle fold 0" do
@@ -125,8 +125,8 @@ main = do
                   Ref.read rf >>= shouldEqual [ 12, 3 ]
                   unsub
               it "should handle fold 1" do
-                rf <- liftEffect $ Ref.new []
                 liftEffect do
+                  rf <- Ref.new []
                   { push, event } <- create
                   let add1 = map (add 1) event
                   let add2 = map (add 2) add1
@@ -198,11 +198,12 @@ main = do
               Ref.read count >>= shouldEqual 1
               unsub1
               unsub2
-          it "wat" $ liftEffect do
+        describe "Legacy" do
+          it "has a somewhat puzzling result when it adds itself to itself (2 + 2 = 3)" $ liftEffect do
             rf <- Ref.new []
             { push, event } <- Legacy.create
             unsub <- Legacy.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
             push 2
             push 1
-            o <- liftEffect $ Ref.read rf
+            o <- Ref.read rf
             o `shouldEqual` [ 2,3,4 ]

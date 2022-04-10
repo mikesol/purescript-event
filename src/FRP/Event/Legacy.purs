@@ -12,7 +12,6 @@ import Effect.Ref as Ref
 import FRP.Event (class Filterable)
 import FRP.Event as Class
 import FRP.Event as Event
-import FRP.Event.Class (biSampleOn)
 
 -- | This is the same as `FRP.Event` but with a (somewhat questionable) `Apply` and `Applicative` instance.
 

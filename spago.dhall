@@ -25,5 +25,5 @@ You can edit this file as you like.
   , "unsafe-reference"
   ]
 , packages = ./packages.dhall
-, sources = [ "src/**/*.purs", "test/**/*.purs" ]
+, sources = [ "src/**/*.purs" ]
 }
