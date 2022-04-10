@@ -15,11 +15,12 @@ import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Event (sampleOn)
 import FRP.Event as Event
-import FRP.Event.Class (class IsEvent, fold)
+import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
 import FRP.Event.Memoizable as Memoizable
 import FRP.Event.Memoize (memoize, memoizeIfMemoizable)
 import FRP.Event.Memoized as Memoized
+import FRP.Event.STMemoized as STMemoized
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Reporter (consoleReporter)
@@ -30,13 +31,20 @@ main = do
   launchAff_
     $ runSpec [ consoleReporter ] do
         let
-          suite :: forall event. IsEvent event => String -> (forall a. a -> event a) -> (forall a. Effect { push :: a -> Effect Unit, event :: event a }) -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit)) -> Spec Unit
-          suite name bang create subscribe =
+          suite
+            :: forall event
+             . IsEvent event
+            => String
+            -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
+            -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
+            -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
+            -> Spec Unit
+          suite name context create subscribe =
             describe ("Testing " <> name) do
               it "should do simple stuff" do
                 liftEffect do
                   rf <- Ref.new []
-                  unsub <- subscribe ((bang 0)) \i -> Ref.modify_ (cons i) rf
+                  unsub <- subscribe (context (bang 0) identity) \i -> Ref.modify_ (cons i) rf
                   o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
                   unsub
@@ -44,12 +52,11 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   { push, event } <- create
-                  let event' = event
-                  unsub1 <- subscribe event' \i -> Ref.modify_ (cons i) rf
+                  unsub1 <- subscribe (context event identity) \i -> Ref.modify_ (cons i) rf
                   push 0
                   o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
-                  unsub2 <- subscribe event' \i -> Ref.modify_ (cons (negate i)) rf
+                  unsub2 <- subscribe (context event identity) \i -> Ref.modify_ (cons (negate i)) rf
                   o' <- Ref.read rf
                   o' `shouldEqual` [ 0 ]
                   push 1
@@ -59,36 +66,51 @@ main = do
               it "should do a lot more complex addition" do
                 liftEffect do
                   rf <- Ref.new []
-                  let add1 = (map (add 1) (bang 0))
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let add4 = (map (add 4) add3)
-                  unsub <- subscribe (add1 <|> add4) \i -> Ref.modify_ (cons i) rf
+                  let
+                    x = context (bang 0) \i ->
+                      let
+                        add1 = map (add 1) i
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                      in
+                        add1 <|> add4
+                  unsub <- subscribe x \i -> Ref.modify_ (cons i) rf
                   o <- Ref.read rf
                   o `shouldEqual` [ 10, 1 ]
                   unsub
               it "should handle alt" do
                 liftEffect do
                   rf <- Ref.new []
-                  let add1 = (map (add 1) (bang 0))
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let add4 = map (add 4) add3
-                  let altr = (add1 <|> add2 <|> empty <|> add4 <|> empty)
-                  unsub <- subscribe (add1 <|> altr) \i -> Ref.modify_ (cons i) rf
+                  let
+                    x = context (bang 0) \i ->
+                      let
+                        add1 = (map (add 1) i)
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+                      in
+                        add1 <|> altr
+                  unsub <- subscribe x \i -> Ref.modify_ (cons i) rf
                   o <- Ref.read rf
                   o `shouldEqual` [ 10, 3, 1, 1 ]
                   unsub
               it "should handle filter 1" do
                 liftEffect do
                   rf <- Ref.new []
-                  let add1 = map (add 1) (bang 0)
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let add4 = map (add 4) add3
-                  let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                  let fm = (filter (_ < 5) altr)
-                  unsub <- subscribe (add1 <|> fm) (\i -> Ref.modify_ (cons i) rf)
+                  let
+                    x = context (bang 0) \i ->
+                      let
+                        add1 = map (add 1) i
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+                        fm = (filter (_ < 5) altr)
+                      in
+                        add1 <|> fm
+                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
                   o <- Ref.read rf
                   o `shouldEqual` [ 3, 1, 1 ]
                   unsub
@@ -109,13 +131,16 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   { push, event } <- create
-                  let foldy = (fold (\_ b -> b + 1) event 0)
-                  let add2 = map (add 2) foldy
-                  let add3 = map (add 3) add2
-                  let add4 = map (add 4) add3
-                  let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  let fm = (filter (_ > 5) altr)
-                  unsub <- subscribe (foldy <|> fm) (\i -> Ref.modify_ (cons i) rf)
+                  let
+                    x = context event \i -> do
+                      let foldy = (fold (\_ b -> b + 1) i 0)
+                      let add2 = map (add 2) foldy
+                      let add3 = map (add 3) add2
+                      let add4 = map (add 4) add3
+                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+                      let fm = (filter (_ > 5) altr)
+                      foldy <|> fm
+                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
                   push unit
                   Ref.read rf >>= shouldEqual [ 10, 1 ]
                   Ref.write [] rf
@@ -129,14 +154,16 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   { push, event } <- create
-                  let add1 = map (add 1) event
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let foldy = fold (\a b -> a + b) add3 0
-                  let add4 = map (add 4) add3
-                  let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  let fm = sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
-                  unsub <- subscribe fm (\i -> Ref.modify_ (cons i) rf)
+                  let
+                    x = context event \i -> do
+                      let add1 = map (add 1) i
+                      let add2 = map (add 2) add1
+                      let add3 = map (add 3) add2
+                      let foldy = fold (\a b -> a + b) add3 0
+                      let add4 = map (add 4) add3
+                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
                   Ref.write [] rf
@@ -146,10 +173,17 @@ main = do
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
                   unsub
-        suite "Event" Event.bang Event.create Event.subscribe
-        suite "Legacy" pure Legacy.create Legacy.subscribe
-        suite "Memoized" Memoized.bang Memoized.create Memoized.subscribe
-        suite "Memoizable" Memoizable.bang Memoizable.create Memoizable.subscribe
+        suite "Event" (\i f -> f i) Event.create Event.subscribe
+        suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
+        suite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe
+        suite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe
+        suite "STMemoizable"
+          ( \i io -> STMemoized.run' (Memoizable.toEvent i)
+              (map (Memoizable.fromEvent <<< STMemoized.toEvent) io)
+              (map Memoizable.fromEvent io)
+          )
+          Memoizable.create
+          Memoizable.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -240,4 +274,4 @@ main = do
             push 2
             push 1
             o <- Ref.read rf
-            o `shouldEqual` [ 2,3,4 ]
+            o `shouldEqual` [ 2, 3, 4 ]

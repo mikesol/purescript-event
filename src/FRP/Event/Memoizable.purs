@@ -4,7 +4,8 @@ module FRP.Event.Memoizable
   , create
   , makeEvent
   , subscribe
-  , bang
+  , fromEvent
+  , toEvent
   , module Class
   ) where
 
@@ -23,6 +24,12 @@ import FRP.Event as Event
 import FRP.Event.Class (class Filterable, class IsEvent, biSampleOn, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
 import FRP.Event.Memoize (class MemoizableEvent, isMemoizable, unsafeMemoize)
 import Safe.Coerce (coerce)
+
+fromEvent :: Event.Event ~> Event
+fromEvent = Event
+
+toEvent :: Event ~> Event.Event
+toEvent (Event e) = e
 
 derive newtype instance memoizableMemoizableEvent :: MemoizableEvent Event
 
