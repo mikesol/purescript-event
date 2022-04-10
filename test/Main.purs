@@ -4,8 +4,10 @@ import Prelude
 
 import Control.Alt ((<|>))
 import Control.Plus (empty)
-import Data.Array (cons)
+import Data.Array (cons, replicate)
 import Data.Filterable (filter)
+import Data.JSDate (getTime, now)
+import Data.Traversable (foldr, for_, oneOf, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
@@ -23,6 +25,7 @@ import FRP.Event.Memoized as Memoized
 import FRP.Event.STMemoized as STMemoized
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
+import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 
@@ -184,6 +187,64 @@ main = do
           )
           Memoizable.create
           Memoizable.subscribe
+        let
+          performanceSuite
+            :: forall event
+             . IsEvent event
+            => String
+            -> (forall i o. event i -> (event i -> event o) -> event o)
+            -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
+            -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
+            -> (forall a. Array (event a) -> event a)
+            -> Spec Unit
+          performanceSuite name context create subscribe merger =
+            describe ("Performance testing " <> name) do
+              it "handles 10 subscriptions with a simple event and 1000 pushes" do
+                liftEffect do
+                  starts <- getTime <$> now
+                  rf <- Ref.new []
+                  { push, event } <- create
+                  unsubs <- sequence $ replicate 10 (subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i -> Ref.modify_ (cons i) rf)
+                  for_ (replicate 1000 3) \i -> push i
+                  for_ unsubs \unsub -> unsub
+                  ends <- getTime <$> now
+                  write ("Duration: " <> show (ends - starts) <> "\n")
+              it "handles 1000 subscriptions with a simple event and 10 pushes" do
+                liftEffect do
+                  starts <- getTime <$> now
+                  rf <- Ref.new []
+                  { push, event } <- create
+                  unsubs <- sequence $ replicate 1000 (subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i -> Ref.modify_ (cons i) rf)
+                  for_ (replicate 10 3) \i -> push i
+                  for_ unsubs \unsub -> unsub
+                  ends <- getTime <$> now
+                  write ("Duration: " <> show (ends - starts) <> "\n")
+              it "handles 10 subscriptions with a 100-nested event and 100 pushes" do
+                liftEffect do
+                  starts <- getTime <$> now
+                  rf <- Ref.new []
+                  { push, event } <- create
+                  let e = context event (\i -> foldr ($) i (replicate 100 (map (add 1))))
+                  unsubs <- sequence $ replicate 10 (subscribe  e \i -> Ref.modify_ (cons i) rf)
+                  for_ (replicate 100 3) \i -> push i
+                  for_ unsubs \unsub -> unsub
+                  ends <- getTime <$> now
+                  write ("Duration: " <> show (ends - starts))
+              it "handles 1 subscription with a 10-nested event + 100 alts and 100 pushes" do
+                liftEffect do
+                  starts <- getTime <$> now
+                  rf <- Ref.new []
+                  { push, event } <- create
+                  let e = context event (\i -> merger $ replicate 100 $ foldr ($) i (replicate 10 (map (add 1))))
+                  unsub <- subscribe e \i -> Ref.modify_ (cons i) rf
+                  for_ (replicate 100 3) \i -> push i
+                  unsub
+                  ends <- getTime <$> now
+                  write ("Duration: " <> show (ends - starts) <> "\n")
+        performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe oneOf
+        performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe oneOf
+        performanceSuite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe oneOf
+        performanceSuite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe oneOf
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do

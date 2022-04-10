@@ -9,6 +9,7 @@ module FRP.Event
   ) where
 
 import Prelude
+
 import Control.Alternative (class Alt, class Plus)
 import Data.Array (deleteBy)
 import Data.Compactable (class Compactable)
