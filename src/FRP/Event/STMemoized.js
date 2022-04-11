@@ -11,28 +11,32 @@ exports.mmzStart_ = function (e) {
 		type: "start",
 		value: undefined,
 		cbs: [],
-		next: [],
 		memo: undefined,
 		actualized: false,
 		event: e,
-		ctx: [],
+		depth: 0,
+		ctx: [[]],
 	};
-	next.ctx.push(next);
+	next.ctx[0][0] = next;
 	next.ctx.start = next;
 	return next;
 };
 exports.mmzMap = function (ab) {
 	return function (fa) {
+		const depth = fa.depth + 1;
+		const depthM1 = depth - 1;
 		const next = {
 			type: "map",
 			value: { ab: ab, fa: fa },
 			cbs: [],
-			next: [],
+			depth: depth,
 			memo: undefined,
 			ctx: fa.ctx,
 		};
-		fa.ctx.push(next);
-		fa.next.push(next);
+		if (fa.ctx[depthM1] === undefined) {
+			fa.ctx[depthM1] = [];
+		}
+		fa.ctx[depthM1].push(next);
 		return next;
 	};
 };
@@ -40,60 +44,67 @@ exports.mmzBang = function (a) {
 	return {
 		type: "bang",
 		value: a,
+		depth: 0,
 		cbs: [],
-		next: [],
-		memo: a,
+		memo: [a],
 	};
 };
 exports.mmzAlt = function (fa) {
 	return function (fb) {
+		const depth = Math.max(fa.depth, fb.depth) + 1;
+		const depthM1 = depth - 1;
 		const next = {
 			type: "alt",
 			value: { fa: fa, fb: fb },
 			cbs: [],
-			next: [],
+			depth: depth,
 			memo: undefined,
 			ctx: fa.ctx,
 		};
-		fa.ctx.push(next);
-		fa.next.push(next);
-		fb.next.push(next);
+		if (fa.ctx[depthM1] === undefined) {
+			fa.ctx[depthM1] = [];
+		}
+		fa.ctx[depthM1].push(next);
 		return next;
 	};
 };
 exports.mmzEmpty = {
 	type: "empty",
 	cbs: [],
-	next: [],
+	depth: 0,
 	memo: [],
-	resolving: true,
 };
 exports.mmzKeepLatest = function (ffa) {
 	return ffa.value;
 };
 exports.mmzSampleOn = function (fa) {
 	return function (fab) {
+		const depth = Math.max(fab.depth, fa.depth) + 1;
+		const depthM1 = depth - 1;
 		const next = {
 			type: "sampleOn",
 			value: { fab: fab, fa: fa },
 			cbs: [],
-			next: [],
+			depth: depth,
 			memo: undefined,
 			ctx: fa.ctx,
 		};
-		fa.ctx.push(next);
-		fa.next.push(next);
-		fab.next.push(next);
+		if (fa.ctx[depthM1] === undefined) {
+			fa.ctx[depthM1] = [];
+		}
+		fa.ctx[depthM1].push(next);
 		return next;
 	};
 };
 exports.mmzPartitionMap = function (aelr) {
 	return function (fa) {
+		const depth = fa.depth + 1;
+		const depthM1 = depth - 1;
 		const left = {
 			type: "partitionMapLeft",
 			value: { aelr: aelr, fa: fa },
 			cbs: [],
-			next: [],
+			depth: depth,
 			memo: undefined,
 			ctx: fa.ctx,
 		};
@@ -101,104 +112,103 @@ exports.mmzPartitionMap = function (aelr) {
 			type: "partitionMapRight",
 			value: { aelr: aelr, fa: fa },
 			cbs: [],
-			next: [],
+			depth: depth,
 			memo: undefined,
 			ctx: fa.ctx,
 		};
-		fa.ctx.push(left);
-		fa.ctx.push(right);
-		fa.next.push(left);
-		fa.next.push(right);
+		if (fa.ctx[depthM1] === undefined) {
+			fa.ctx[depthM1] = [];
+		}
+		fa.ctx[depthM1].push(left);
+		fa.ctx[depthM1].push(right);
 		return { left: left, right: right };
 	};
 };
 exports.mmzFold = function (abb) {
 	return function (fa) {
 		return function (b) {
+			const depth = fa.depth + 1;
+			const depthM1 = depth - 1;
 			const next = {
 				type: "fold",
 				value: { abb: abb, fa: fa, b: b },
 				cbs: [],
-				next: [],
+				depth: depth,
 				memo: undefined,
 				ctx: fa.ctx,
 			};
-			fa.ctx.push(next);
-			fa.next.push(next);
+			if (fa.ctx[depthM1] === undefined) {
+				fa.ctx[depthM1] = [];
+			}
+			fa.ctx[depthM1].push(next);
 			return next;
 		};
 	};
 };
 
-const runMMZInternal = function (opts, mmz) {
-	if (mmz.resolving === false) {
-		mmz.resolving = true;
-		if (mmz.type === "start") {
-			mmz.memo = [mmz.value];
-		} else if (mmz.type === "bang") {
-		} else if (mmz.type === "map") {
-			runMMZInternal(opts, mmz.value.fa);
-			mmz.memo = [];
-			for (var i = 0; i < mmz.value.fa.memo.length; i++) {
-				mmz.memo.push(mmz.value.ab(mmz.value.fa.memo[i]));
-			}
-		} else if (mmz.type === "sampleOn") {
-			runMMZInternal(opts, mmz.value.fab);
-			runMMZInternal(opts, mmz.value.fa);
-			mmz.memo = [];
-			for (var i = 0; i < mmz.value.fab.memo.length; i++) {
-				for (var j = 0; j < mmz.value.fa.memo.length; j++) {
-					mmz.memo.push(mmz.value.fab.memo[i](mmz.value.fa.memo[j]));
+const runMMZInternal = function (opts, ctx) {
+	for (var ij = 0; ij < ctx.length; ij++) {
+		for (var ix = 0; ix < ctx[ij].length; ix++) {
+			var mmz = ctx[ij][ix];
+			//console.log("doing", mmz.type);
+			if (mmz.type === "start") {
+				mmz.memo = [mmz.value];
+			} else if (mmz.type === "bang") {
+			} else if (mmz.type === "map") {
+				mmz.memo = [];
+				for (var i = 0; i < mmz.value.fa.memo.length; i++) {
+					mmz.memo.push(mmz.value.ab(mmz.value.fa.memo[i]));
 				}
-			}
-		} else if (mmz.type === "alt") {
-			runMMZInternal(opts, mmz.value.fa);
-			runMMZInternal(opts, mmz.value.fb);
-			mmz.memo = [];
-			for (var i = 0; i < mmz.value.fa.memo.length; i++) {
-				mmz.memo.push(mmz.value.fa.memo[i]);
-			}
-			for (var i = 0; i < mmz.value.fb.memo.length; i++) {
-				mmz.memo.push(mmz.value.fb.memo[i]);
-			}
-		} else if (mmz.type === "empty") {
-			mmz.memo = [];
-		} else if (mmz.type === "partitionMapLeft") {
-			runMMZInternal(opts, mmz.value.fa);
-			var l = [];
-			var e = opts.either((x) => l.push(x))(() => {});
-			for (var i = 0; i < mmz.value.fa.memo.length; i++) {
-				e(mmz.value.aelr(mmz.value.fa.memo[i]));
-			}
-			mmz.memo = l;
-		} else if (mmz.type === "partitionMapRight") {
-			runMMZInternal(opts, mmz.value.fa);
-			var r = [];
-			var e = opts.either(() => {})((x) => r.push(x));
-			for (var i = 0; i < mmz.value.fa.memo.length; i++) {
-				e(mmz.value.aelr(mmz.value.fa.memo[i]));
-			}
-			mmz.memo = r;
-		} else if (mmz.type === "fold") {
-			runMMZInternal(opts, mmz.value.fa);
-			mmz.memo = [];
-			var b = mmz.value.b;
-			for (var i = 0; i < mmz.value.fa.memo.length; i++) {
-				b = mmz.value.abb(mmz.value.fa.memo[i])(b);
-				mmz.memo.push(b);
-			}
-			mmz.value.b = b;
-		} else {
-			throw new Error("Failed pattern match on mmz", mmz);
-		}
-		if (mmz.type !== "empty") {
-			for (var i = 0; i < mmz.cbs.length; i++) {
-				for (var j = 0; j < mmz.memo.length; j++) {
-					mmz.cbs[i](mmz.memo[j])();
+			} else if (mmz.type === "sampleOn") {
+				mmz.memo = [];
+				for (var i = 0; i < mmz.value.fab.memo.length; i++) {
+					for (var j = 0; j < mmz.value.fa.memo.length; j++) {
+						mmz.memo.push(mmz.value.fab.memo[i](mmz.value.fa.memo[j]));
+					}
 				}
+			} else if (mmz.type === "alt") {
+				mmz.memo = [];
+				//console.log(mmz.value.fa.type, mmz.value.fa.memo);
+				for (var i = 0; i < mmz.value.fa.memo.length; i++) {
+					mmz.memo.push(mmz.value.fa.memo[i]);
+				}
+				//console.log(mmz.value.fb.type, mmz.value.fb.memo);
+				for (var i = 0; i < mmz.value.fb.memo.length; i++) {
+					mmz.memo.push(mmz.value.fb.memo[i]);
+				}
+			} else if (mmz.type === "empty") {
+				mmz.memo = [];
+			} else if (mmz.type === "partitionMapLeft") {
+				var l = [];
+				var e = opts.either((x) => l.push(x))(() => {});
+				for (var i = 0; i < mmz.value.fa.memo.length; i++) {
+					e(mmz.value.aelr(mmz.value.fa.memo[i]));
+				}
+				mmz.memo = l;
+			} else if (mmz.type === "partitionMapRight") {
+				var r = [];
+				var e = opts.either(() => {})((x) => r.push(x));
+				for (var i = 0; i < mmz.value.fa.memo.length; i++) {
+					e(mmz.value.aelr(mmz.value.fa.memo[i]));
+				}
+				mmz.memo = r;
+			} else if (mmz.type === "fold") {
+				mmz.memo = [];
+				var b = mmz.value.b;
+				for (var i = 0; i < mmz.value.fa.memo.length; i++) {
+					b = mmz.value.abb(mmz.value.fa.memo[i])(b);
+					mmz.memo.push(b);
+				}
+				mmz.value.b = b;
+			} else {
+				throw new Error("Failed pattern match on mmz", mmz);
 			}
-			for (var i = 0; i < mmz.next.length; i++) {
-				runMMZInternal(opts, mmz.next[i]);
+			if (mmz.type !== "empty") {
+				for (var i = 0; i < mmz.cbs.length; i++) {
+					for (var j = 0; j < mmz.memo.length; j++) {
+						mmz.cbs[i](mmz.memo[j])();
+					}
+				}
 			}
 		}
 	}
@@ -235,10 +245,9 @@ exports.runMMZ_ = function (opts) {
 			return function () {
 				for (var i = 0; i < mmz.ctx.length; i++) {
 					mmz.ctx[i].memo = undefined;
-					mmz.ctx[i].resolving = false;
 				}
 				mmz.ctx.start.value = r;
-				runMMZInternal(opts, mmz.ctx.start);
+				runMMZInternal(opts, mmz.ctx);
 			};
 		};
 	};

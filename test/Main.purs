@@ -192,7 +192,7 @@ main = do
             :: forall event
              . IsEvent event
             => String
-            -> (forall i o. event i -> (event i -> event o) -> event o)
+            -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
             -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
             -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
             -> Spec Unit
@@ -255,6 +255,13 @@ main = do
         performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
         performanceSuite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe
         performanceSuite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe
+        performanceSuite "STMemoizable"
+          ( \i io -> STMemoized.run' (Memoizable.toEvent i)
+              (map (Memoizable.fromEvent <<< STMemoized.toEvent) io)
+              (map Memoizable.fromEvent io)
+          )
+          Memoizable.create
+          Memoizable.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
