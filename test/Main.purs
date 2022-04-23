@@ -7,6 +7,7 @@ import Control.Plus (empty)
 import Data.Array (cons, replicate)
 import Data.Filterable (filter)
 import Data.JSDate (getTime, now)
+import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, oneOf, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
@@ -15,13 +16,11 @@ import Effect.Aff (launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event (sampleOn)
+import FRP.Event (keepLatest, memoize, sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
-import FRP.Event.Memoizable as Memoizable
-import FRP.Event.Memoize (memoize, memoizeIfMemoizable)
-import FRP.Event.Memoized as Memoized
+import FRP.Event.STMemoized (toEvent)
 import FRP.Event.STMemoized as STMemoized
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -178,15 +177,10 @@ main = do
                   unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
         suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
-        suite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe
-        suite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe
         suite "STMemoizable"
-          ( \i io -> STMemoized.run' (Memoizable.toEvent i)
-              (map (Memoizable.fromEvent <<< STMemoized.toEvent) io)
-              (map Memoizable.fromEvent io)
-          )
-          Memoizable.create
-          Memoizable.subscribe
+          (\i io -> keepLatest (STMemoized.run i (toEvent <<< io)))
+          Event.create
+          Event.subscribe
         let
           performanceSuite
             :: forall event
@@ -224,7 +218,7 @@ main = do
                   rf <- Ref.new []
                   { push, event } <- create
                   let e = context event (\i -> foldr ($) i (replicate 100 (map (add 1))))
-                  unsubs <- sequence $ replicate 10 (subscribe  e \i -> Ref.modify_ (cons i) rf)
+                  unsubs <- sequence $ replicate 10 (subscribe e \i -> Ref.modify_ (cons i) rf)
                   for_ (replicate 100 3) \i -> push i
                   for_ unsubs \unsub -> unsub
                   ends <- getTime <$> now
@@ -253,15 +247,10 @@ main = do
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
         performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
-        performanceSuite "Memoized" (\i f -> f i) Memoized.create Memoized.subscribe
-        performanceSuite "Memoizable" (\i f -> f i) Memoizable.create Memoizable.subscribe
         performanceSuite "STMemoizable"
-          ( \i io -> STMemoized.run' (Memoizable.toEvent i)
-              (map (Memoizable.fromEvent <<< STMemoized.toEvent) io)
-              (map Memoizable.fromEvent io)
-          )
-          Memoizable.create
-          Memoizable.subscribe
+          (\i io -> keepLatest (STMemoized.run i (toEvent <<< io)))
+          Event.create
+          Event.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -279,7 +268,6 @@ main = do
               Ref.read count >>= shouldEqual 2
               unsub1
               unsub2
-
           it "should memoize" do
             liftEffect do
               { push, event } <- Event.create
@@ -289,61 +277,39 @@ main = do
                   unsafePerformEffect do
                     Ref.modify_ (add 1) count
                     pure $ v
-              mapped <- memoize (map fn event)
-              unsub1 <- Event.subscribe mapped (pure (pure unit))
-              unsub2 <- Event.subscribe mapped (pure (pure unit))
+              let
+                mapped = keepLatest $
+                  memoize (identity (map fn event)) \e -> Event.makeEvent \k -> do
+                    unsub1 <- Event.subscribe e mempty
+                    unsub2 <- Event.subscribe e k
+                    pure (unsub1 *> unsub2)
+
+              usu <- Event.subscribe mapped (mempty)
               push 0
               Ref.read count >>= shouldEqual 1
-              unsub1
-              unsub2
-          it "should memoize when using Memoized.Event" do
+              usu
+          it "should not memoize when applied internally" do
             liftEffect do
-              { push, event } <- Memoized.create
+              { push, event } <- Event.create
               count <- Ref.new 0
               let
                 fn v =
                   unsafePerformEffect do
                     Ref.modify_ (add 1) count
                     pure $ v
-              let mapped = identity (map fn event)
-              unsub1 <- Memoized.subscribe mapped (pure (pure unit))
-              unsub2 <- Memoized.subscribe mapped (pure (pure unit))
-              push 0
-              Ref.read count >>= shouldEqual 1
-              unsub1
-              unsub2
-          it "should memoize when using Memoizable.Event if we ask for it explicitly" do
-            liftEffect do
-              { push, event } <- Memoizable.create
-              count <- Ref.new 0
               let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let mapped = identity (memoizeIfMemoizable (map fn (map identity (map identity (map identity event)))))
-              unsub1 <- Memoizable.subscribe mapped (pure (pure unit))
-              unsub2 <- Memoizable.subscribe mapped (pure (pure unit))
-              push 0
-              Ref.read count >>= shouldEqual 1
-              unsub1
-              unsub2
-          it "should _not_ memoize when using Memoizable.Event if we _don't_ ask for it explicitly" do
-            liftEffect do
-              { push, event } <- Memoizable.create
-              count <- Ref.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let mapped = identity (map fn (map identity (map identity (map identity event))))
-              unsub1 <- Memoizable.subscribe mapped (pure (pure unit))
-              unsub2 <- Memoizable.subscribe mapped (pure (pure unit))
+                mapped = keepLatest
+                  $ memoize event
+                  $ (lcmap (identity <<< map fn)) \e ->
+                      Event.makeEvent \k -> do
+                        unsub1 <- Event.subscribe e mempty
+                        unsub2 <- Event.subscribe e k
+                        pure (unsub1 *> unsub2)
+
+              usu <- Event.subscribe mapped (mempty)
               push 0
               Ref.read count >>= shouldEqual 2
-              unsub1
-              unsub2
+              usu
         describe "Legacy" do
           it "has a somewhat puzzling result when it adds itself to itself (2 + 2 = 3)" $ liftEffect do
             rf <- Ref.new []

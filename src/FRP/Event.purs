@@ -5,6 +5,8 @@ module FRP.Event
   , makeEvent
   , subscribe
   , bang
+  , bus
+  , memoize
   , module Class
   ) where
 
@@ -197,3 +199,15 @@ bang a =
   Event \k -> do
     k a
     pure (pure unit)
+
+bus :: forall r a. ((a -> Effect Unit) -> Event a -> r) -> Event r
+bus f = makeEvent \k -> do
+  { push, event } <- create
+  k (f push event)
+  pure (pure unit)
+
+memoize :: forall r a. Event a -> (Event a -> r) -> Event r
+memoize e f = makeEvent \k -> do
+  { push, event } <- create
+  k (f event)
+  subscribe e push
