@@ -22,12 +22,21 @@ import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
 import FRP.Event.STMemoized (toEvent)
 import FRP.Event.STMemoized as STMemoized
+import FRP.Event.VBus (V, vbus)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
+import Type.Proxy (Proxy(..))
 
+type Test =
+  V
+    ( a :: Int
+    , b :: Unit
+    , c :: V (a :: Int, b :: String, q :: V (r :: Boolean))
+    , d :: Array Int
+    )
 main :: Effect Unit
 main = do
   launchAff_
@@ -319,3 +328,47 @@ main = do
             push 1
             o <- Ref.read rf
             o `shouldEqual` [ 2, 3, 4 ]
+        describe "VBus" do
+          it "works with simple pushing" $ liftEffect do
+            r <- Ref.new []
+            u <- Event.subscribe
+              ( keepLatest $ vbus (Proxy :: _ Test)
+                  ( \p e -> e.d <|> Event.makeEvent \k -> do
+                      k [ 1, 2 ]
+                      p.d [ 34 ]
+                      pure (pure unit)
+                  )
+              )
+              \i -> Ref.modify_ (append i) r
+            u
+            Ref.read r >>= shouldEqual [ 34, 1, 2 ]
+          it "works with more complex pushing 1" $ liftEffect do
+            r <- Ref.new ""
+            u <- Event.subscribe
+              ( keepLatest $ vbus (Proxy :: _ Test)
+                  ( \p e -> map show e.d <|> map show e.c.a <|> map show e.c.q.r <|> Event.makeEvent \_ -> do
+                      p.d [1]
+                      p.c.a 55
+                      p.c.q.r false
+                      p.b unit
+                      pure (pure unit)
+                  )
+              )
+              \i -> Ref.modify_ (append i) r
+            u
+            Ref.read r >>= shouldEqual "false55[1]"
+          it "works with more complex pushing 2" $ liftEffect do
+            r <- Ref.new ""
+            u <- Event.subscribe
+              ( keepLatest $ vbus (Proxy :: _ Test)
+                  ( \p e -> map show e.d <|> map show e.c.a <|> map show e.b <|> Event.makeEvent \_ -> do
+                      p.d [1]
+                      p.c.a 55
+                      p.c.q.r false
+                      p.b unit
+                      pure (pure unit)
+                  )
+              )
+              \i -> Ref.modify_ (append i) r
+            u
+            Ref.read r >>= shouldEqual "unit55[1]"
