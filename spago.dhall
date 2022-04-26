@@ -9,7 +9,6 @@ You can edit this file as you like.
   , "datetime"
   , "effect"
   , "either"
-  , "exists"
   , "filterable"
   , "foldable-traversable"
   , "js-timers"
@@ -17,12 +16,11 @@ You can edit this file as you like.
   , "now"
   , "ordered-collections"
   , "prelude"
-  , "profunctor"
   , "psci-support"
   , "record"
   , "refs"
-  , "safe-coerce"
   , "tuples"
+  , "unsafe-coerce"
   , "unsafe-reference"
   ]
 , packages = ./packages.dhall
