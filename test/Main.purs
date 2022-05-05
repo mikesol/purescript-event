@@ -392,142 +392,142 @@ main = do
                   tell (o `shouldEqual` [ 0 ])
                   lift unsub
               )
-          -- it "should do complex stuff" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         { push, event } <- lift $ Event.create
-          --         unsub1 <- lift $ Event.subscribe (event) \i -> modify__ (cons i) rf
-          --         lift $ push 0
-          --         o <- lift $ RRef.read rf
-          --         tell (o `shouldEqual` [ 0 ])
-          --         unsub2 <- lift $ Event.subscribe (event) \i -> modify__ (cons (negate i)) rf
-          --         o' <- lift $ RRef.read rf
-          --         tell (o' `shouldEqual` [ 0 ])
-          --         lift $ push 1
-          --         o'' <- lift $ RRef.read rf
-          --         tell (o'' `shouldEqual` [ -1, 1, 0 ])
-          --         lift $ unsub1 *> unsub2
-          --     )
-          -- it "should do a lot more complex addition" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         let
-          --           x = (bang 0) # \i ->
-          --             let
-          --               add1 = map (add 1) i
-          --               add2 = map (add 2) add1
-          --               add3 = map (add 3) add2
-          --               add4 = map (add 4) add3
-          --             in
-          --               add1 <|> add4
-          --         unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
-          --         o <- lift $ RRef.read rf
-          --         tell (o `shouldEqual` [ 10, 1 ])
-          --         lift $ unsub
-          --     )
-          -- it "should handle alt" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         let
-          --           x = (bang 0) # \i ->
-          --             let
-          --               add1 = (map (add 1) i)
-          --               add2 = map (add 2) add1
-          --               add3 = map (add 3) add2
-          --               add4 = map (add 4) add3
-          --               altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-          --             in
-          --               add1 <|> altr
-          --         unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
-          --         o <- lift $ RRef.read rf
-          --         tell (o `shouldEqual` [ 10, 3, 1, 1 ])
-          --         lift $ unsub
-          --     )
-          -- it "should handle filter 1" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         let
-          --           x = (bang 0) # \i ->
-          --             let
-          --               add1 = map (add 1) i
-          --               add2 = map (add 2) add1
-          --               add3 = map (add 3) add2
-          --               add4 = map (add 4) add3
-          --               altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-          --               fm = (filter (_ < 5) altr)
-          --             in
-          --               add1 <|> fm
-          --         unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-          --         o <- lift $ RRef.read rf
-          --         tell (o `shouldEqual` [ 3, 1, 1 ])
-          --         lift $ unsub
-          --     )
-          -- it "should handle filter 2" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         let add1 = (map (add 1) (bang 0))
-          --         let add2 = map (add 2) add1
-          --         let add3 = map (add 3) add2
-          --         let add4 = map (add 4) add3
-          --         let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-          --         let fm = (filter (_ > 5) altr)
-          --         unsub <- lift $ Event.subscribe (add1 <|> fm) (\i -> modify__ (cons i) rf)
-          --         o <- lift $ RRef.read rf
-          --         tell (o `shouldEqual` [ 10, 1 ])
-          --         lift $ unsub
-          --     )
-          -- it "should handle fold 0" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         { push, event } <- lift $ Event.create
-          --         let
-          --           x = event # \i -> do
-          --             let foldy = (fold (\_ b -> b + 1) i 0)
-          --             let add2 = map (add 2) foldy
-          --             let add3 = map (add 3) add2
-          --             let add4 = map (add 4) add3
-          --             let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-          --             let fm = (filter (_ > 5) altr)
-          --             foldy <|> fm
-          --         unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-          --         lift $ push unit
-          --         (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 10, 1 ])
-          --         void $ lift $ RRef.write [] rf
-          --         lift $ push unit
-          --         (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 11, 2 ])
-          --         lift $ void $ RRef.write [] rf
-          --         lift $ push unit
-          --         (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 12, 3 ])
-          --         lift $ unsub
-          --     )
-          -- it "should handle fold 1" do
-          --   run
-          --     ( execWriterT do
-          --         rf <- lift $ RRef.new []
-          --         { push, event } <- lift $ Event.create
-          --         let
-          --           x = event # \i -> do
-          --             let add1 = map (add 1) i
-          --             let add2 = map (add 2) add1
-          --             let add3 = map (add 3) add2
-          --             let foldy = fold (\a b -> a + b) add3 0
-          --             let add4 = map (add 4) add3
-          --             let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-          --             sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
-          --         unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-          --         lift $ push 0
-          --         (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 6 ]
-          --         lift $ void $ RRef.write [] rf
-          --         lift $ push 0
-          --         (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 12 ]
-          --         lift $ void $ RRef.write [] rf
-          --         lift $ push 0
-          --         (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 18 ]
-          --         lift $ unsub
-          --     )
+          it "should do complex stuff" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  { push, event } <- lift $ Event.create
+                  unsub1 <- lift $ Event.subscribe (event) \i -> modify__ (cons i) rf
+                  lift $ push 0
+                  o <- lift $ RRef.read rf
+                  tell (o `shouldEqual` [ 0 ])
+                  unsub2 <- lift $ Event.subscribe (event) \i -> modify__ (cons (negate i)) rf
+                  o' <- lift $ RRef.read rf
+                  tell (o' `shouldEqual` [ 0 ])
+                  lift $ push 1
+                  o'' <- lift $ RRef.read rf
+                  tell (o'' `shouldEqual` [ -1, 1, 0 ])
+                  lift $ unsub1 *> unsub2
+              )
+          it "should do a lot more complex addition" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  let
+                    x = (bang 0) # \i ->
+                      let
+                        add1 = map (add 1) i
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                      in
+                        add1 <|> add4
+                  unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
+                  o <- lift $ RRef.read rf
+                  tell (o `shouldEqual` [ 10, 1 ])
+                  lift $ unsub
+              )
+          it "should handle alt" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  let
+                    x = (bang 0) # \i ->
+                      let
+                        add1 = (map (add 1) i)
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+                      in
+                        add1 <|> altr
+                  unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
+                  o <- lift $ RRef.read rf
+                  tell (o `shouldEqual` [ 10, 3, 1, 1 ])
+                  lift $ unsub
+              )
+          it "should handle filter 1" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  let
+                    x = (bang 0) # \i ->
+                      let
+                        add1 = map (add 1) i
+                        add2 = map (add 2) add1
+                        add3 = map (add 3) add2
+                        add4 = map (add 4) add3
+                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+                        fm = (filter (_ < 5) altr)
+                      in
+                        add1 <|> fm
+                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
+                  o <- lift $ RRef.read rf
+                  tell (o `shouldEqual` [ 3, 1, 1 ])
+                  lift $ unsub
+              )
+          it "should handle filter 2" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  let add1 = (map (add 1) (bang 0))
+                  let add2 = map (add 2) add1
+                  let add3 = map (add 3) add2
+                  let add4 = map (add 4) add3
+                  let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+                  let fm = (filter (_ > 5) altr)
+                  unsub <- lift $ Event.subscribe (add1 <|> fm) (\i -> modify__ (cons i) rf)
+                  o <- lift $ RRef.read rf
+                  tell (o `shouldEqual` [ 10, 1 ])
+                  lift $ unsub
+              )
+          it "should handle fold 0" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  { push, event } <- lift $ Event.create
+                  let
+                    x = event # \i -> do
+                      let foldy = (fold (\_ b -> b + 1) i 0)
+                      let add2 = map (add 2) foldy
+                      let add3 = map (add 3) add2
+                      let add4 = map (add 4) add3
+                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+                      let fm = (filter (_ > 5) altr)
+                      foldy <|> fm
+                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
+                  lift $ push unit
+                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 10, 1 ])
+                  void $ lift $ RRef.write [] rf
+                  lift $ push unit
+                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 11, 2 ])
+                  lift $ void $ RRef.write [] rf
+                  lift $ push unit
+                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 12, 3 ])
+                  lift $ unsub
+              )
+          it "should handle fold 1" do
+            run
+              ( execWriterT do
+                  rf <- lift $ RRef.new []
+                  { push, event } <- lift $ Event.create
+                  let
+                    x = event # \i -> do
+                      let add1 = map (add 1) i
+                      let add2 = map (add 2) add1
+                      let add3 = map (add 3) add2
+                      let foldy = fold (\a b -> a + b) add3 0
+                      let add4 = map (add 4) add3
+                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
+                  lift $ push 0
+                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 6 ]
+                  lift $ void $ RRef.write [] rf
+                  lift $ push 0
+                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 12 ]
+                  lift $ void $ RRef.write [] rf
+                  lift $ push 0
+                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 18 ]
+                  lift $ unsub
+              )
