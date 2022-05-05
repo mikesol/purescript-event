@@ -3,19 +3,15 @@ module FRP.Event.Time
   , withTime
   , debounce
   , debounceWith
-  , delay
   ) where
 
 import Prelude
 
 import Data.DateTime.Instant (Instant, instant, unInstant)
-import Data.Foldable (for_)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
-import Data.Set (Set, singleton, delete)
+import Data.Maybe (Maybe, fromMaybe, maybe)
 import Data.Time.Duration (Milliseconds)
 import Effect.Now (now)
-import Effect.Ref as Ref
-import Effect.Timer (TimeoutId, clearInterval, clearTimeout, setInterval, setTimeout)
+import Effect.Timer (clearInterval, setInterval)
 import FRP.Event (Event, makeEvent, subscribe)
 import FRP.Event.Class (fix, gateBy)
 
@@ -68,22 +64,3 @@ debounceWith process event
   where
     stamped :: Event { time :: Instant, value :: a }
     stamped = withTime event
-
-delay :: forall a. Int -> Event a -> Event a
-delay n e =
-  makeEvent \k -> do
-    tid <- Ref.new (mempty :: Set TimeoutId)
-    canceler <-
-      subscribe e \a -> do
-        localId <- Ref.new (Nothing :: Maybe TimeoutId)
-        id <-
-          setTimeout n do
-            k a
-            lid <- Ref.read localId
-            maybe (pure unit) (\id -> Ref.modify_ (delete id) tid) lid
-        Ref.write (Just id) localId
-        Ref.modify_ (append (singleton id)) tid
-    pure do
-      ids <- Ref.read tid
-      for_ ids clearTimeout
-      canceler

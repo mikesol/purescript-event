@@ -3,10 +3,10 @@ module Test.Main where
 import Prelude
 
 import Control.Alt ((<|>))
-import Control.Monad.ST.Internal (run)
+import Control.Monad.ST.Internal (ST, STRef, run)
 import Control.Monad.ST.Internal as RRef
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Writer (execWriterT, runWriterT, tell)
+import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
 import Data.Array (cons, replicate)
 import Data.Filterable (filter)
@@ -24,17 +24,17 @@ import FRP.Event (keepLatest, memoize, sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
-import FRP.Event.STMemoized (toEvent)
-import FRP.Event.STMemoized as STMemoized
 import FRP.Event.VBus (V, vbus)
-import Test.Spec (Spec, describe, it, itOnly)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
 
+modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ RRef.modify a b
+fresh :: forall a r. a -> ST r (STRef r a)
 fresh = RRef.new
 
 type Test =
@@ -194,10 +194,6 @@ main = do
                   unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
         suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
-        suite "STMemoizable"
-          (\i io -> keepLatest (STMemoized.run i (toEvent <<< io)))
-          Event.create
-          Event.subscribe
         let
           performanceSuite
             :: forall event
@@ -264,10 +260,6 @@ main = do
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
         performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
-        performanceSuite "STMemoizable"
-          (\i io -> keepLatest (STMemoized.run i (toEvent <<< io)))
-          Event.create
-          Event.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do

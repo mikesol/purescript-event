@@ -13,6 +13,7 @@ You can edit this file as you like.
   , "foldable-traversable"
   , "js-timers"
   , "maybe"
+  , "monoid-extras"
   , "now"
   , "ordered-collections"
   , "prelude"

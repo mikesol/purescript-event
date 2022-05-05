@@ -15,14 +15,19 @@ import Prelude
 
 import Control.Alternative (class Alt, class Plus)
 import Control.Monad.ST.Class (class MonadST, liftST)
+import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as Ref
 import Data.Array (deleteBy)
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable (class Filterable, filterMap)
-import Data.Foldable (sequence_, traverse_)
-import Data.Maybe (Maybe(..))
+import Data.Foldable (for_, sequence_, traverse_)
+import Data.Maybe (Maybe(..), maybe)
+import Data.Monoid.Action (class Action)
+import Data.Set (Set, singleton, delete)
 import Effect (Effect)
+import Effect.Ref as ERef
+import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
 import Unsafe.Reference (unsafeRefEq)
 
@@ -39,6 +44,7 @@ import Unsafe.Reference (unsafeRefEq)
 -- | Events are consumed by providing a callback using the `subscribe` function.
 newtype AnEvent m a = AnEvent ((a -> m Unit) -> m (m Unit))
 type Event a = AnEvent Effect a
+type STEvent r a = AnEvent (ST r) a
 
 instance functorEvent :: Functor (AnEvent m) where
   map f (AnEvent e) = AnEvent \k -> e (k <<< f)
@@ -215,3 +221,29 @@ memoize e f = makeEvent \k -> do
   { push, event } <- create
   k (f event)
   subscribe e push
+
+--
+instance Action Int (Event a) where
+  act = delay
+
+instance Action Int (STEvent r a) where
+  act = const identity
+
+delay :: forall a. Int -> Event a -> Event a
+delay n e =
+  makeEvent \k -> do
+    tid <- ERef.new (mempty :: Set TimeoutId)
+    canceler <-
+      subscribe e \a -> do
+        localId <- ERef.new (Nothing :: Maybe TimeoutId)
+        id <-
+          setTimeout n do
+            k a
+            lid <- ERef.read localId
+            maybe (pure unit) (\id -> ERef.modify_ (delete id) tid) lid
+        ERef.write (Just id) localId
+        ERef.modify_ (append (singleton id)) tid
+    pure do
+      ids <- ERef.read tid
+      for_ ids clearTimeout
+      canceler
