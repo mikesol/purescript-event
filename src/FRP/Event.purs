@@ -24,6 +24,7 @@ import Data.Filterable (class Filterable, filterMap)
 import Data.Foldable (for_, sequence_, traverse_)
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
+import Data.Monoid.Additive (Additive(..))
 import Data.Set (Set, singleton, delete)
 import Effect (Effect)
 import Effect.Ref as ERef
@@ -223,10 +224,10 @@ memoize e f = makeEvent \k -> do
   subscribe e push
 
 --
-instance Action Int (Event a) where
-  act = delay
+instance Action (Additive Int) (Event a) where
+  act (Additive i) = delay i
 
-instance Action Int (STEvent r a) where
+instance Action (Additive Int) (STEvent r a) where
   act = const identity
 
 delay :: forall a. Int -> Event a -> Event a
