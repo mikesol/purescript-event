@@ -16,7 +16,7 @@ import Data.Traversable (foldr, for_, oneOf, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
-import Effect.Aff (launchAff_)
+import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
@@ -24,6 +24,7 @@ import FRP.Event (keepLatest, memoize, sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
+import FRP.Event.Time (debounce)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -372,6 +373,23 @@ main = do
               \i -> Ref.modify_ (append i) r
             u
             Ref.read r >>= shouldEqual "unit55[1]"
+        describe "fix" do
+          it "should work" do
+            { event, push } <- liftEffect Event.create
+            rf <- liftEffect $ Ref.new []
+            unsub <-liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
+            liftEffect do
+              push 1
+              push 2
+              push 3
+              push 4
+            delay (Milliseconds 1500.0)
+            liftEffect do
+              push 5
+              push 6
+              o <- Ref.read rf
+              o `shouldEqual` [ 5, 1 ]
+              unsub
         --------
         -- for st, we can't use the suite, as it leask a variable
         -- for now, copied and pasted below
