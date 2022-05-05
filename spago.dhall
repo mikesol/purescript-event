@@ -18,6 +18,7 @@ You can edit this file as you like.
   , "prelude"
   , "record"
   , "refs"
+  , "st"
   , "tuples"
   , "unsafe-coerce"
   , "unsafe-reference"
