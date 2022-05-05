@@ -104,7 +104,7 @@ fold f (AnEvent e) b =
     e \a -> liftST (Ref.modify (f a) result) >>= k
 
 -- | Create an `Event` which only fires when a predicate holds.
-filter :: forall m s a b. Applicative m => (a -> Maybe b) -> AnEvent m a -> AnEvent m b
+filter :: forall m a b. Applicative m => (a -> Maybe b) -> AnEvent m a -> AnEvent m b
 filter p (AnEvent e) =
   AnEvent \k ->
     e \a -> case p a of
