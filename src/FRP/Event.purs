@@ -166,9 +166,9 @@ subscribe (AnEvent e) k = e k
 -- | Note: you probably want to use `create` instead, unless you need explicit
 -- | control over unsubscription.
 makeEvent
-  :: forall a
-   . ((a -> Effect Unit) -> Effect (Effect Unit))
-  -> Event a
+  :: forall m a
+   . ((a -> m Unit) -> m (m Unit))
+  -> AnEvent m a
 makeEvent = AnEvent
 
 type EventIO a =
@@ -204,13 +204,13 @@ bang a =
     k a
     in pure unit
 
-bus :: forall r a. ((a -> Effect Unit) -> Event a -> r) -> Event r
+bus :: forall m s r a. MonadST s m => ((a -> m Unit) -> AnEvent m a -> r) -> AnEvent m r
 bus f = makeEvent \k -> do
   { push, event } <- create
   k (f push event)
   pure (pure unit)
 
-memoize :: forall r a. Event a -> (Event a -> r) -> Event r
+memoize :: forall m s r a. MonadST s m => AnEvent m a -> (AnEvent m a -> r) -> AnEvent m r
 memoize e f = makeEvent \k -> do
   { push, event } <- create
   k (f event)
