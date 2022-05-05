@@ -35,6 +35,7 @@ import Type.Proxy (Proxy(..))
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ RRef.modify a b
+
 fresh :: forall a r. a -> ST r (STRef r a)
 fresh = RRef.new
 
@@ -377,7 +378,7 @@ main = do
           it "should work" do
             { event, push } <- liftEffect Event.create
             rf <- liftEffect $ Ref.new []
-            unsub <-liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
+            unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
             liftEffect do
               push 1
               push 2
