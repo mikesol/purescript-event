@@ -236,7 +236,7 @@ delay n e =
     tid <- ERef.new (mempty :: Set TimeoutId)
     canceler <-
       subscribe e \a -> do
-        localId <- ERef.new (Nothing :: Maybe TimeoutId)
+        localId <- ERef.new Nothing
         id <-
           setTimeout n do
             k a
