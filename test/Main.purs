@@ -35,6 +35,7 @@ import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
 
 modify__ a b = void $ RRef.modify a b
+fresh = RRef.new
 
 type Test =
   V
@@ -386,7 +387,7 @@ main = do
           it "should do simple stuff" do
             run
               ( execWriterT do
-                  rf <- lift (RRef.new [])
+                  rf <- lift (fresh [])
                   unsub <- lift (Event.subscribe (bang 0) \i -> modify__ (cons i) rf)
                   o <- lift (RRef.read rf)
                   tell (o `shouldEqual` [ 0 ])
@@ -395,7 +396,7 @@ main = do
           it "should do complex stuff" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   { push, event } <- lift $ Event.create
                   unsub1 <- lift $ Event.subscribe (event) \i -> modify__ (cons i) rf
                   lift $ push 0
@@ -412,7 +413,7 @@ main = do
           it "should do a lot more complex addition" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   let
                     x = (bang 0) # \i ->
                       let
@@ -430,7 +431,7 @@ main = do
           it "should handle alt" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   let
                     x = (bang 0) # \i ->
                       let
@@ -449,7 +450,7 @@ main = do
           it "should handle filter 1" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   let
                     x = (bang 0) # \i ->
                       let
@@ -469,7 +470,7 @@ main = do
           it "should handle filter 2" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   let add1 = (map (add 1) (bang 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
@@ -484,7 +485,7 @@ main = do
           it "should handle fold 0" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   { push, event } <- lift $ Event.create
                   let
                     x = event # \i -> do
@@ -509,7 +510,7 @@ main = do
           it "should handle fold 1" do
             run
               ( execWriterT do
-                  rf <- lift $ RRef.new []
+                  rf <- lift $ fresh []
                   { push, event } <- lift $ Event.create
                   let
                     x = event # \i -> do
