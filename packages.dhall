@@ -108,14 +108,16 @@ let upstream =
       https://github.com/purescript/package-sets/releases/download/psc-0.15.0-20220429/packages.dhall
         sha256:03c682bff56fc8f9d8c495ffcc6f524cbd3c89fe04778f965265c08757de8c9d
 
-
 let additions =
       { monoid-extras =
-        { dependencies =
-          [ "prelude"
-          ]
+        { dependencies = [ "prelude" ]
         , repo = "https://github.com/mikesol/purescript-monoid-extras.git"
         , version = "v0.0.0"
+        }
+      , functor1 =
+        { dependencies = [ "prelude" ]
+        , repo = "https://github.com/garyb/purescript-functor1.git"
+        , version = "v2.0.0"
         }
       }
 

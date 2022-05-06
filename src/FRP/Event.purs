@@ -9,12 +9,18 @@ module FRP.Event
   , bus
   , memoize
   , module Class
+  , toEvent
+  , fromEvent
+  , class Effectable
+  , toEffect
+  , fromEffect
   ) where
 
 import Prelude
 
 import Control.Alternative (class Alt, class Plus)
 import Control.Monad.ST.Class (class MonadST, liftST)
+import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as Ref
 import Data.Array (deleteBy)
@@ -22,9 +28,10 @@ import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Foldable (for_, sequence_, traverse_)
-import Data.Maybe (Maybe(..), maybe)
+import Data.Maybe (Maybe(..), fromMaybe, maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
+import Data.Profunctor (dimap)
 import Data.Set (Set, singleton, delete)
 import Effect (Effect)
 import Effect.Ref as ERef
@@ -45,6 +52,7 @@ import Unsafe.Reference (unsafeRefEq)
 -- | Events are consumed by providing a callback using the `subscribe` function.
 newtype AnEvent m a = AnEvent ((a -> m Unit) -> m (m Unit))
 type Event a = AnEvent Effect a
+
 type STEvent r a = AnEvent (ST r) a
 
 instance functorEvent :: Functor (AnEvent m) where
@@ -134,7 +142,7 @@ sampleOn (AnEvent e1) (AnEvent e2) =
 
 -- | Flatten a nested `Event`, reporting values only from the most recent
 -- | inner `Event`.
-keepLatest :: forall m s a. MonadST s m =>  AnEvent m (AnEvent m a) -> AnEvent m a
+keepLatest :: forall m s a. MonadST s m => AnEvent m (AnEvent m a) -> AnEvent m a
 keepLatest (AnEvent e) =
   AnEvent \k -> do
     cancelInner <- liftST $ Ref.new Nothing
@@ -187,10 +195,12 @@ type AnEventIO m a =
   { event :: AnEvent m a
   , push :: a -> m Unit
   }
+
 -- | Create an event and a function which supplies a value to that event.
 create
   :: forall m s a
-   . MonadST s m => m (AnEventIO m a)
+   . MonadST s m
+  => m (AnEventIO m a)
 create = do
   subscribers <- liftST $ Ref.new []
   pure
@@ -248,3 +258,33 @@ delay n e =
       ids <- ERef.read tid
       for_ ids clearTimeout
       canceler
+
+class Effectable m where
+  toEffect :: m ~> Effect
+  fromEffect :: forall a. Effect a -> Maybe (m a)
+
+instance Effectable (ST Global) where
+  toEffect = liftST
+  fromEffect _ = Nothing
+
+instance Effectable Effect where
+  toEffect = identity
+  fromEffect = Just
+
+toEvent :: forall m. Effectable m => Applicative m => AnEvent m ~> Event
+toEvent (AnEvent i) = AnEvent $
+  dimap
+    (map (fromEffect >>> fromMaybe (pure unit)))
+    (toEffect <<< map toEffect)
+    i
+
+fromEvent :: forall m. Applicative m => Effectable m => Event ~> AnEvent m
+fromEvent (AnEvent i) = AnEvent
+  $ dimap
+      (map toEffect)
+      ( fromMaybe
+          (pure (pure unit))
+          <<< fromEffect
+          <<< map (fromMaybe (pure unit) <<< fromEffect)
+      )
+      i
