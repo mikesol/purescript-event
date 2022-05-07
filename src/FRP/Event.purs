@@ -198,9 +198,10 @@ type AnEventIO m a =
 
 -- | Create an event and a function which supplies a value to that event.
 create
-  :: forall m s a
-   . MonadST s m
-  => m (AnEventIO m a)
+  :: forall m1 m2 s a
+   . MonadST s m1
+  => MonadST s m2
+  => m1 (AnEventIO m2 a)
 create = do
   subscribers <- liftST $ Ref.new []
   pure
