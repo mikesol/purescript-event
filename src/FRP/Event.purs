@@ -10,7 +10,7 @@ module FRP.Event
   , memoize
   , module Class
   , toEvent
-  --, fromEvent
+  , fromEvent
   ) where
 
 import Prelude
@@ -266,13 +266,9 @@ toEvent (AnEvent i) = AnEvent $
     (always :: m (m Unit) -> Effect (Effect Unit))
     i
 
--- fromEvent :: forall m. Always m => Effectable m => Event ~> AnEvent m
--- fromEvent (AnEvent i) = AnEvent
---   $ dimap
---       (map toEffect)
---       ( fromMaybe
---           (pure (pure unit))
---           <<< fromEffect
---           <<< map (fromMaybe (pure unit) <<< fromEffect)
---       )
---       i
+fromEvent :: forall m. Always (m Unit) (Effect Unit) => Always (Endo Function (Effect (Effect Unit))) (Endo Function (m (m Unit))) => Applicative m => Event ~> AnEvent m
+fromEvent (AnEvent i) = AnEvent
+  $ dimap
+      (\f a ->  (always (f a)) :: Effect Unit)
+      (\a -> unwrap (always (Endo (const a )) :: Endo Function (m (m Unit))) (pure (pure unit)))
+      i
