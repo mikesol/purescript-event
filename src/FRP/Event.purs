@@ -269,6 +269,6 @@ toEvent (AnEvent i) = AnEvent $
 fromEvent :: forall m. Always (m Unit) (Effect Unit) => Always (Endo Function (Effect (Effect Unit))) (Endo Function (m (m Unit))) => Applicative m => Event ~> AnEvent m
 fromEvent (AnEvent i) = AnEvent
   $ dimap
-      (\f a -> always (f a))
+      (map always)
       (\a -> unwrap (always (Endo (const a)) :: Endo Function (m (m Unit))) (pure (pure unit)))
       i
