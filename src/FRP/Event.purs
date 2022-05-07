@@ -10,10 +10,7 @@ module FRP.Event
   , memoize
   , module Class
   , toEvent
-  , fromEvent
-  , class Effectable
-  , toEffect
-  , fromEffect
+  --, fromEvent
   ) where
 
 import Prelude
@@ -28,9 +25,12 @@ import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Foldable (for_, sequence_, traverse_)
-import Data.Maybe (Maybe(..), fromMaybe, maybe)
+import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
+import Data.Monoid.Always (class Always, always)
+import Data.Monoid.Endo (Endo(..))
+import Data.Newtype (unwrap)
 import Data.Profunctor (dimap)
 import Data.Set (Set, singleton, delete)
 import Effect (Effect)
@@ -53,7 +53,7 @@ import Unsafe.Reference (unsafeRefEq)
 newtype AnEvent m a = AnEvent ((a -> m Unit) -> m (m Unit))
 type Event a = AnEvent Effect a
 
-type STEvent r a = AnEvent (ST r) a
+type STEvent a = AnEvent (ST Global) a
 
 instance functorEvent :: Functor (AnEvent m) where
   map f (AnEvent e) = AnEvent \k -> e (k <<< f)
@@ -237,7 +237,7 @@ memoize e f = makeEvent \k -> do
 instance Action (Additive Int) (Event a) where
   act (Additive i) = delay i
 
-instance Action (Additive Int) (STEvent r a) where
+instance Action (Additive Int) (STEvent a) where
   act = const identity
 
 delay :: forall a. Int -> Event a -> Event a
@@ -259,32 +259,20 @@ delay n e =
       for_ ids clearTimeout
       canceler
 
-class Effectable m where
-  toEffect :: m ~> Effect
-  fromEffect :: forall a. Effect a -> Maybe (m a)
-
-instance Effectable (ST Global) where
-  toEffect = liftST
-  fromEffect _ = Nothing
-
-instance Effectable Effect where
-  toEffect = identity
-  fromEffect = Just
-
-toEvent :: forall m. Effectable m => Applicative m => AnEvent m ~> Event
+toEvent :: forall m. Always (Endo Function (Effect Unit)) (Endo Function (m Unit)) => Always (m (m Unit)) (Effect (Effect Unit)) => Applicative m => AnEvent m ~> Event
 toEvent (AnEvent i) = AnEvent $
   dimap
-    (map (fromEffect >>> fromMaybe (pure unit)))
-    (toEffect <<< map toEffect)
+    (\f a -> unwrap (always (Endo (const (f a))) :: Endo Function (m Unit)) (pure unit))
+    (always :: m (m Unit) -> Effect (Effect Unit))
     i
 
-fromEvent :: forall m. Applicative m => Effectable m => Event ~> AnEvent m
-fromEvent (AnEvent i) = AnEvent
-  $ dimap
-      (map toEffect)
-      ( fromMaybe
-          (pure (pure unit))
-          <<< fromEffect
-          <<< map (fromMaybe (pure unit) <<< fromEffect)
-      )
-      i
+-- fromEvent :: forall m. Always m => Effectable m => Event ~> AnEvent m
+-- fromEvent (AnEvent i) = AnEvent
+--   $ dimap
+--       (map toEffect)
+--       ( fromMaybe
+--           (pure (pure unit))
+--           <<< fromEffect
+--           <<< map (fromMaybe (pure unit) <<< fromEffect)
+--       )
+--       i

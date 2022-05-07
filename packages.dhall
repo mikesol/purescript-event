@@ -110,9 +110,9 @@ let upstream =
 
 let additions =
       { monoid-extras =
-        { dependencies = [ "prelude" ]
+        { dependencies = [ "profunctor-lenses" ]
         , repo = "https://github.com/mikesol/purescript-monoid-extras.git"
-        , version = "v0.0.0"
+        , version = "v0.0.1"
         }
       , functor1 =
         { dependencies = [ "prelude" ]
