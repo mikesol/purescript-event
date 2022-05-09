@@ -1,6 +1,6 @@
 {
   "name": "purescript-event",
-  "version": "1.6.2",
+  "version": "1.6.4",
   "description": "The `Event` type, extracted from my `purescript-behaviors` library.",
   "main": "index.js",
   "scripts": {
