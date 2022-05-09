@@ -9,6 +9,7 @@ module FRP.Event
   , bus
   , memoize
   , module Class
+  , delay
   , toEvent
   , fromEvent
   ) where
