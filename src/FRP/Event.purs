@@ -10,7 +10,9 @@ module FRP.Event
   , memoize
   , module Class
   , delay
+  , ToEvent
   , toEvent
+  , FromEvent
   , fromEvent
   ) where
 
@@ -261,14 +263,26 @@ delay n e =
       for_ ids clearTimeout
       canceler
 
-toEvent :: forall m. Always (Endo Function (Effect Unit)) (Endo Function (m Unit)) => Always (m (m Unit)) (Effect (Effect Unit)) => Applicative m => AnEvent m ~> Event
+type ToEvent m a
+   = Always (Endo Function (Effect Unit)) (Endo Function (m Unit))
+  => Always (m (m Unit)) (Effect (Effect Unit))
+  => Applicative m
+  => a
+
+toEvent :: forall m. ToEvent m (AnEvent m ~> Event)
 toEvent (AnEvent i) = AnEvent $
   dimap
     (\f a -> unwrap (always (Endo (const (f a))) :: Endo Function (m Unit)) (pure unit))
     (always :: m (m Unit) -> Effect (Effect Unit))
     i
 
-fromEvent :: forall m. Always (m Unit) (Effect Unit) => Always (Endo Function (Effect (Effect Unit))) (Endo Function (m (m Unit))) => Applicative m => Event ~> AnEvent m
+type FromEvent m a
+   = Always (m Unit) (Effect Unit)
+  => Always (Endo Function (Effect (Effect Unit))) (Endo Function (m (m Unit)))
+  => Applicative m
+  => a
+
+fromEvent :: forall m. FromEvent m (Event ~> AnEvent m)
 fromEvent (AnEvent i) = AnEvent
   $ dimap
       (map always)
