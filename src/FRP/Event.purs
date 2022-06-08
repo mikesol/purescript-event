@@ -8,13 +8,14 @@ module FRP.Event
   , bang
   , bus
   , memoize
+  , hot
+  , sweep
   , module Class
   , delay
   , ToEvent
   , toEvent
   , FromEvent
   , fromEvent
-  , hot
   ) where
 
 import Prelude
@@ -27,8 +28,9 @@ import Control.Monad.ST.Internal as Ref
 import Data.Array (deleteBy)
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
-import Data.Filterable (class Filterable, filterMap)
+import Data.Filterable as Filterable
 import Data.Foldable (for_, sequence_, traverse_)
+import Data.Map as Map
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
@@ -89,13 +91,13 @@ filter' f =
         false -> Nothing
     )
 
-instance filterableEvent :: Applicative m => Filterable (AnEvent m) where
+instance filterableEvent :: Applicative m => Filterable.Filterable (AnEvent m) where
   filter = filter'
   filterMap = filter
   partition p xs = { yes: filter' p xs, no: filter' (not <<< p) xs }
   partitionMap f xs =
-    { left: filterMap (either Just (const Nothing) <<< f) xs
-    , right: filterMap (hush <<< f) xs
+    { left: Filterable.filterMap (either Just (const Nothing) <<< f) xs
+    , right: Filterable.filterMap (hush <<< f) xs
     }
 
 instance altEvent :: Applicative m => Alt (AnEvent m) where
@@ -232,6 +234,27 @@ bus f = makeEvent \k -> do
   { push, event } <- create
   k (f push event)
   pure (pure unit)
+
+-- | Takes the entire domain of a and allows for ad-hoc specialization.
+sweep :: forall m s r a. Ord a => MonadST s m => AnEvent m a -> ((a -> AnEvent m Unit) -> r) -> AnEvent m r
+sweep e f = makeEvent \k1 -> do
+  r <- liftST $ Ref.new Map.empty
+  k1 $ f \a -> makeEvent \k2 -> do
+    void $ liftST $ Ref.modify (Map.alter (case _ of
+      Nothing -> Just [k2]
+      Just arr -> Just (arr <> [k2])) a)  r
+    pure $ void $ liftST $ Ref.modify (Map.alter (case _ of
+      Nothing -> Nothing
+      Just arr -> Just (deleteBy unsafeRefEq k2 arr)) a) r
+  unsub <- subscribe e \a -> do
+    o <- liftST $ Ref.read r
+    case Map.lookup a o of
+      Nothing -> pure unit
+      Just arr -> for_ arr (_ $ unit)
+  pure do
+    -- free references - helps gc?
+    void $ liftST $ Ref.write (Map.empty) r
+    unsub
 
 -- | Takes an event and memoizes it within a closure.
 -- | All interactions with the event in the closure will not trigger a fresh
