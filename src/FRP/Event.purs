@@ -9,7 +9,7 @@ module FRP.Event
   , bus
   , memoize
   , hot
-  , sweep
+  , mailboxed
   , module Class
   , delay
   , ToEvent
@@ -236,8 +236,8 @@ bus f = makeEvent \k -> do
   pure (pure unit)
 
 -- | Takes the entire domain of a and allows for ad-hoc specialization.
-sweep :: forall m s r a. Ord a => MonadST s m => AnEvent m a -> ((a -> AnEvent m Unit) -> r) -> AnEvent m r
-sweep e f = makeEvent \k1 -> do
+mailboxed :: forall m s r a. Ord a => MonadST s m => AnEvent m a -> ((a -> AnEvent m Unit) -> r) -> AnEvent m r
+mailboxed e f = makeEvent \k1 -> do
   r <- liftST $ Ref.new Map.empty
   k1 $ f \a -> makeEvent \k2 -> do
     void $ liftST $ Ref.modify (Map.alter (case _ of

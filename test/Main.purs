@@ -21,7 +21,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, sweep)
+import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, mailboxed)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, bang, fold)
 import FRP.Event.Legacy as Legacy
@@ -565,11 +565,11 @@ main = do
                   (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 18 ]
                   lift $ unsub
               )
-        describe "Sweep" do
-          it "sweeps" $ liftEffect do
+        describe "Mailboxed" do
+          it "mailboxes" $ liftEffect do
             rf <- Ref.new []
             e <- Event.create
-            unsub <- Event.subscribe (keepLatest $ sweep e.event \f -> f 3 <|> f 4) \i -> Ref.modify_ (cons i) rf
+            unsub <- Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i -> Ref.modify_ (cons i) rf
             e.push 42
             e.push 43
             e.push 44
