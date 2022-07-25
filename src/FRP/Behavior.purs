@@ -28,6 +28,7 @@ import Control.Alt (alt)
 import Control.Apply (lift2)
 import Data.Filterable (class Filterable, compact)
 import Data.Function (applyFlipped)
+import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
@@ -62,6 +63,14 @@ instance semigroupABehavior :: (Functor event, Semigroup a) => Semigroup (ABehav
 
 instance monoidABehavior :: (Functor event, Monoid a) => Monoid (ABehavior event a) where
   mempty = pure mempty
+
+instance heytingAlgebraABehavior :: (Functor event, HeytingAlgebra a) => HeytingAlgebra (ABehavior event a) where
+  tt = pure tt
+  ff = pure ff
+  not = map not
+  implies = lift2 implies
+  conj = lift2 conj
+  disj = lift2 disj
 
 -- | Construct a `Behavior` from its sampling function.
 behavior :: forall event a. (forall b. event (a -> b) -> event b) -> ABehavior event a
