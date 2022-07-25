@@ -24,7 +24,6 @@ import FRP.Behavior (Behavior, behavior, gate)
 import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, mailboxed)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
-import FRP.Event.Legacy as Legacy
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (Spec, describe, it)
@@ -212,7 +211,6 @@ main = do
                   Ref.read rf >>= shouldEqual x
                   unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
-        suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
         let
           performanceSuite
             :: forall event
@@ -278,7 +276,6 @@ main = do
                   ends <- getTime <$> now
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
-        performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -355,11 +352,11 @@ main = do
             r' <- liftEffect $ Ref.read r
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
-        describe "Legacy" do
+        describe "Apply" do
           it "has a somewhat puzzling result when it adds itself to itself (2 + 2 = 3)" $ liftEffect do
             rf <- Ref.new []
-            { push, event } <- Legacy.create
-            unsub <- Legacy.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
+            { push, event } <- Event.create
+            unsub <- Event.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
             push 2
             push 1
             o <- Ref.read rf
