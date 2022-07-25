@@ -20,6 +20,7 @@ module FRP.Event
 import Prelude
 
 import Control.Alternative (class Alt, class Alternative, class Plus)
+import Control.Apply (lift2)
 import Control.Monad.ST.Class (class MonadST, liftST)
 import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Internal (ST)
@@ -30,6 +31,7 @@ import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable as Filterable
 import Data.Foldable (for_, sequence_, traverse_)
+import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
@@ -123,6 +125,20 @@ instance eventIsEvent :: MonadST s m => Class.IsEvent (AnEvent m) where
   keepLatest = keepLatest
   sampleOn = sampleOn
   fix = fix
+
+instance semigroupEvent :: (Semigroup a, MonadST s m) => Semigroup (AnEvent m a) where
+  append = lift2 append
+
+instance monoidEvent :: (Monoid a, MonadST s m) => Monoid (AnEvent m a) where
+  mempty = pure mempty
+
+instance heytingAlgebraEvent :: (HeytingAlgebra a, MonadST s m) => HeytingAlgebra (AnEvent m a) where
+  tt = pure tt
+  ff = pure ff
+  not = map not
+  implies = lift2 implies
+  conj = lift2 conj
+  disj = lift2 disj
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall m s a b. MonadST s m => (a -> b -> b) -> AnEvent m a -> b -> AnEvent m b
