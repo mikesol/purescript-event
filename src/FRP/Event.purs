@@ -9,6 +9,7 @@ module FRP.Event
   , bus
   , memoize
   , hot
+  , burning
   , mailboxed
   , module Class
   , delay
@@ -20,6 +21,7 @@ module FRP.Event
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Control.Alternative (class Alt, class Plus)
 import Control.Monad.ST.Class (class MonadST, liftST)
 import Control.Monad.ST.Global (Global)
@@ -240,12 +242,24 @@ mailboxed :: forall m s r a. Ord a => MonadST s m => AnEvent m a -> ((a -> AnEve
 mailboxed e f = makeEvent \k1 -> do
   r <- liftST $ Ref.new Map.empty
   k1 $ f \a -> makeEvent \k2 -> do
-    void $ liftST $ Ref.modify (Map.alter (case _ of
-      Nothing -> Just [k2]
-      Just arr -> Just (arr <> [k2])) a)  r
-    pure $ void $ liftST $ Ref.modify (Map.alter (case _ of
-      Nothing -> Nothing
-      Just arr -> Just (deleteBy unsafeRefEq k2 arr)) a) r
+    void $ liftST $ Ref.modify
+      ( Map.alter
+          ( case _ of
+              Nothing -> Just [ k2 ]
+              Just arr -> Just (arr <> [ k2 ])
+          )
+          a
+      )
+      r
+    pure $ void $ liftST $ Ref.modify
+      ( Map.alter
+          ( case _ of
+              Nothing -> Nothing
+              Just arr -> Just (deleteBy unsafeRefEq k2 arr)
+          )
+          a
+      )
+      r
   unsub <- subscribe e \a -> do
     o <- liftST $ Ref.read r
     case Map.lookup a o of
@@ -271,6 +285,25 @@ hot e = do
   { event, push } <- create
   unsubscribe <- subscribe e push
   pure { event, unsubscribe }
+
+burning
+  :: forall m s a
+   . MonadST s m
+  => a
+  -> AnEvent m a
+  -> m { event :: AnEvent m a, unsubscribe :: m Unit }
+burning i e = do
+  r <- liftST $ Ref.new i
+  { event, push } <- create
+  unsubscribe <- subscribe e \x -> do
+    _ <- liftST $ Ref.write x r
+    push x
+  pure
+    { event: event <|> makeEvent \k -> do
+        liftST (Ref.read r) >>= k
+        pure (pure unit)
+    , unsubscribe
+    }
 
 --
 instance Action (Additive Int) (Event a) where
