@@ -286,6 +286,7 @@ hot e = do
   unsubscribe <- subscribe e push
   pure { event, unsubscribe }
 
+-- | Makes an event _burning_ hot. Like hot, it will start firing immediately on left bind. In addition, it _always_ fires _immediately_ upon subscription with the most recent value.
 burning
   :: forall m s a
    . MonadST s m
