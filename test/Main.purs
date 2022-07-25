@@ -8,7 +8,7 @@ import Control.Monad.ST.Internal as RRef
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
-import Data.Array (cons, replicate)
+import Data.Array (cons, replicate, snoc)
 import Data.Filterable (filter)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
@@ -23,7 +23,7 @@ import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
 import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, mailboxed)
 import FRP.Event as Event
-import FRP.Event.Class (class IsEvent, bang, fold)
+import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Legacy as Legacy
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
@@ -60,6 +60,7 @@ main = do
           suite
             :: forall event
              . IsEvent event
+            => Applicative event
             => String
             -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
             -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
@@ -70,7 +71,7 @@ main = do
               it "should do simple stuff" do
                 liftEffect do
                   rf <- Ref.new []
-                  unsub <- subscribe (context (bang 0) identity) \i -> Ref.modify_ (cons i) rf
+                  unsub <- subscribe (context (pure 0) identity) \i -> Ref.modify_ (cons i) rf
                   o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
                   unsub
@@ -93,7 +94,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -109,7 +110,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = (map (add 1) i)
                         add2 = map (add 2) add1
@@ -126,7 +127,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -143,7 +144,7 @@ main = do
               it "should handle filter 2" do
                 liftEffect do
                   rf <- Ref.new []
-                  let add1 = (map (add 1) (bang 0))
+                  let add1 = (map (add 1) (pure 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
                   let add4 = map (add 4) add3
@@ -198,6 +199,17 @@ main = do
                   Ref.write [] rf
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
+                  unsub
+              it "should match Applicative Array instance" do
+                liftEffect do
+                  let
+                    x :: Array (Tuple Int Int)
+                    x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+                    e :: event (Tuple Int Int)
+                    e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+                  rf <- Ref.new []
+                  unsub <- subscribe e (\i -> Ref.modify_ (flip snoc i) rf)
+                  Ref.read rf >>= shouldEqual x
                   unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
         suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
@@ -352,6 +364,7 @@ main = do
             push 1
             o <- Ref.read rf
             o `shouldEqual` [ 2, 3, 4 ]
+            unsub
         describe "VBus" do
           it "works with simple pushing" $ liftEffect do
             r <- Ref.new []
@@ -421,7 +434,7 @@ main = do
             run
               ( execWriterT do
                   rf <- lift (fresh [])
-                  unsub <- lift (Event.subscribe (bang 0) \i -> modify__ (cons i) rf)
+                  unsub <- lift (Event.subscribe (pure 0) \i -> modify__ (cons i) rf)
                   o <- lift (RRef.read rf)
                   tell (o `shouldEqual` [ 0 ])
                   lift unsub
@@ -448,7 +461,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -466,7 +479,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = (map (add 1) i)
                         add2 = map (add 2) add1
@@ -485,7 +498,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -504,7 +517,7 @@ main = do
             run
               ( execWriterT do
                   rf <- lift $ fresh []
-                  let add1 = (map (add 1) (bang 0))
+                  let add1 = (map (add 1) (pure 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
                   let add4 = map (add 4) add3
