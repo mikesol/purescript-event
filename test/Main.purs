@@ -583,7 +583,7 @@ main = do
             e.push 3 --
             e.push 101
             o <- Ref.read rf
-            o `shouldEqual` [ unit, unit, unit ]
+            o `shouldEqual` [ 3, 4, 3 ]
             unsub
         describe "Gate" do
           it "gates" $ liftEffect do
