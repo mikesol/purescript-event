@@ -34,6 +34,17 @@ import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
 
+data Silly = Silly Int Int
+
+instance Eq Silly where
+  eq (Silly a _) (Silly b _) = a == b
+
+instance Ord Silly where
+  compare (Silly a _) (Silly b _) = a `compare` b
+
+instance Show Silly where
+  show (Silly a b) = "Silly " <> show a <> " " <> show b
+
 refToBehavior :: Ref.Ref ~> Behavior
 refToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f -> Ref.read r >>=
   (k <<< f)
@@ -569,21 +580,21 @@ main = do
           it "mailboxes" $ liftEffect do
             rf <- Ref.new []
             e <- Event.create
-            unsub <- Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i -> Ref.modify_ (cons i) rf
-            e.push 42
-            e.push 43
-            e.push 44
-            e.push 3 --
-            e.push 42
-            e.push 43
-            e.push 44
-            e.push 4 --
-            e.push 42
-            e.push 43
-            e.push 3 --
-            e.push 101
+            unsub <- Event.subscribe (keepLatest $ mailboxed e.event \f -> f (Silly 3 42) <|> f (Silly 4 555)) \i -> Ref.modify_ (cons i) rf
+            e.push (Silly 42 1)
+            e.push (Silly 43 1)
+            e.push (Silly 44 1)
+            e.push (Silly 3 1) --
+            e.push (Silly 42 1)
+            e.push (Silly 43 1)
+            e.push (Silly 44 1)
+            e.push (Silly 4 1) --
+            e.push (Silly 42 1)
+            e.push (Silly 43 1)
+            e.push (Silly 3 1) --
+            e.push (Silly 101 1)
             o <- Ref.read rf
-            o `shouldEqual` [ 3, 4, 3 ]
+            o `shouldEqual` [ Silly 3 42, Silly 4 555, Silly 3 42 ]
             unsub
         describe "Gate" do
           it "gates" $ liftEffect do
