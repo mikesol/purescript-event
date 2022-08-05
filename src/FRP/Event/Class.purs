@@ -9,6 +9,7 @@ module FRP.Event.Class
   , sampleOn
   , sampleOn_
   , keepLatest
+  , bang
   , fix
   , gate
   , gateBy
@@ -22,6 +23,7 @@ import Data.Compactable (compact)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Maybe (Maybe(..), fromMaybe)
 import Data.Tuple (Tuple(..), snd)
+import Prim.TypeError (class Warn, Text)
 
 -- | Functions which an `Event` type should implement:
 -- |
@@ -38,6 +40,9 @@ class (Alternative event, Filterable event) <= IsEvent event where
   keepLatest :: forall a. event (event a) -> event a
   sampleOn :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
+
+bang :: forall event a. Warn (Text "\"bang\" is deprecated and will be removed from a future version of this library. Please update your code to use \"pure\" instead of \"bang\".") => Applicative event => a -> event a
+bang = pure
 
 -- | Count the number of events received.
 count :: forall event a. IsEvent event => event a -> event Int

@@ -2,6 +2,7 @@ module FRP.Event
   ( AnEvent
   , Event
   , EventIO
+  , bang
   , create
   , makeEvent
   , subscribe
@@ -45,6 +46,7 @@ import Effect (Effect)
 import Effect.Ref as ERef
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
+import Prim.TypeError (class Warn, Text)
 import Unsafe.Reference (unsafeRefEq)
 
 -- | An `Event` represents a collection of discrete occurrences with associated
@@ -117,6 +119,9 @@ instance applyEvent :: MonadST s m => Apply (AnEvent m) where
 
 instance applicativeEvent :: MonadST s m => Applicative (AnEvent m) where
   pure a = AnEvent \k -> pure unit <$ k a
+
+bang :: forall s m a. Warn (Text "\"bang\" is deprecated and will be removed from a future version of this library. Please update your code to use \"pure\" instead of \"bang\".") =>  MonadST s m => a -> AnEvent m a
+bang = pure
 
 instance alternativeEvent :: MonadST s m => Alternative (AnEvent m)
 

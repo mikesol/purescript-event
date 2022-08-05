@@ -8,7 +8,7 @@ import Control.Monad.ST.Internal as RRef
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
-import Data.Array (cons, replicate, snoc)
+import Data.Array (cons, snoc, replicate)
 import Data.Filterable (filter)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
@@ -353,14 +353,24 @@ main = do
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
         describe "Apply" do
-          it "has a somewhat puzzling result when it adds itself to itself (2 + 2 = 3)" $ liftEffect do
+          it "always applies updates from left to right, emitting at each update" $ liftEffect do
             rf <- Ref.new []
             { push, event } <- Event.create
-            unsub <- Event.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
-            push 2
+            unsub <- Event.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (flip snoc i) rf
             push 1
+            push 2
             o <- Ref.read rf
             o `shouldEqual` [ 2, 3, 4 ]
+            unsub
+          it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
+            rf <- Ref.new []
+            { push, event } <- Event.create
+            let addSixNums x y z a b c = x + y + z + a + b + c
+            unsub <- Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i -> Ref.modify_ (flip snoc i) rf
+            push 1
+            push 2
+            o <- Ref.read rf
+            o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
             unsub
         describe "VBus" do
           it "works with simple pushing" $ liftEffect do
