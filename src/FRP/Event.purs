@@ -4,30 +4,31 @@ module FRP.Event
   , AnEventIO
   , EventIO
   , backdoor
+  , Backdoor(..)
   , create
   , CreateT
-  , Create
+  , Create(..)
   , makeEvent
   , MakeEventT
-  , MakeEvent
+  , MakeEvent(..)
   , subscribe
   , SubscribeT
-  , Subscribe
+  , Subscribe(..)
   , bus
   , BusT
-  , Bus
+  , Bus(..)
   , memoize
   , MemoizeT
-  , Memoize
+  , Memoize(..)
   , hot
   , HotT
-  , Hot
+  , Hot(..)
   , mailboxed
   , MailboxedT
-  , Mailboxed
+  , Mailboxed(..)
   , delay
   , DelayT
-  , Delay
+  , Delay(..)
   , ToEvent
   , toEvent
   , FromEvent
@@ -378,8 +379,7 @@ fromEvent (AnEvent i) = AnEvent
       (\a -> unwrap (always (Endo (const a)) :: Endo Function (m (m Unit))) (pure (pure unit)))
       i
 
-backdoor
-  :: { makeEvent :: MakeEvent
+type Backdoor = { makeEvent :: MakeEvent
      , create :: Create
      , subscribe :: Subscribe
      , bus :: Bus
@@ -388,6 +388,8 @@ backdoor
      , mailboxed :: Mailboxed
      , delay :: Delay
      }
+
+backdoor :: Backdoor
 backdoor =
   { makeEvent:
       let

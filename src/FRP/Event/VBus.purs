@@ -1,4 +1,4 @@
-module FRP.Event.VBus (V, vbus, class VBusStation, VBusT, VBus, vb, vbackdoor) where
+module FRP.Event.VBus (V, vbus, class VBusStation, VBusT, VBus(..), vb, vbackdoor, VBackdoor) where
 
 import Prelude
 
@@ -95,7 +95,9 @@ type VBusT =
 
 newtype VBus = VBus VBusT
 
-vbackdoor :: { vbus :: VBus }
+type VBackdoor = { vbus :: VBus }
+
+vbackdoor :: VBackdoor
 vbackdoor =
   { vbus:
       let

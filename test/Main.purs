@@ -21,7 +21,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, mailboxed)
+import FRP.Event (Backdoor, EventIO, MakeEvent(..), MakeEventT, backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
@@ -32,6 +32,9 @@ import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
+import Unsafe.Coerce (unsafeCoerce)
+
+foreign import unsafeBackdoor :: MakeEvent -> Backdoor -> Effect MakeEvent
 
 refToBehavior :: Ref.Ref ~> Behavior
 refToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f -> Ref.read r >>=
@@ -204,6 +207,7 @@ main = do
                   let
                     x :: Array (Tuple Int Int)
                     x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+
                     e :: event (Tuple Int Int)
                     e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
                   rf <- Ref.new []
@@ -623,3 +627,16 @@ main = do
             eio.push unit
             res <- Ref.read n
             shouldEqual res 3
+        describe "backdoor" do
+          it "works" $ liftEffect do
+            hack :: EventIO Int <- Event.create
+            rf <- Ref.new []
+            old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
+            let e0 = Event.makeEvent \k -> k 42 *> pure (pure unit)
+            _ <- Event.subscribe e0 \i -> Ref.modify_ (cons i) rf
+            hack.push 1
+            hack.push 2
+            hack.push 3
+            a <- Ref.read rf
+            _ <- unsafeBackdoor old backdoor
+            shouldEqual a [ 3, 2, 1 ]
