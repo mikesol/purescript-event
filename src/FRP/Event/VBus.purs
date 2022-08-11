@@ -1,4 +1,4 @@
-module FRP.Event.VBus where
+module FRP.Event.VBus (V, vbus, class VBusStation, VBusT, VBus, vb, vbackdoor) where
 
 import Prelude
 
@@ -12,11 +12,11 @@ import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
 
-class VBus :: RowList Type -> Row Type -> Row Type -> Row Type -> Constraint
-class VBus ri p e u | ri -> p e u where
+class VBusStation :: RowList Type -> Row Type -> Row Type -> Row Type -> Constraint
+class VBusStation ri p e u | ri -> p e u where
   vb :: Proxy ri -> Proxy p -> Proxy e -> V u
 
-instance vbusNil :: VBus RL.Nil () () () where
+instance vbusNil :: VBusStation RL.Nil () () () where
   vb _ _ _ = (unsafeCoerce :: {} -> V ()) {}
 
 foreign import unsafeMarkAsVbus :: forall a. a -> a
@@ -28,14 +28,14 @@ instance vbusCons1 ::
   , RowToList i irl
   , R.Cons key { | p'' } p' p
   , R.Cons key { | e'' } e' e
-  , VBus irl p'' e'' i
-  , VBus rest p' e' u'
+  , VBusStation irl p'' e'' i
+  , VBusStation rest p' e' u'
   , R.Cons key (V i) u' u
   , R.Lacks key p'
   , R.Lacks key e'
   , R.Lacks key u'
   ) =>
-  VBus (RL.Cons key (V i) rest) p e u where
+  VBusStation (RL.Cons key (V i) rest) p e u where
   vb _ _ _ = (unsafeCoerce :: { | u } -> V u) $ Record.insert
     (Proxy :: _ key)
     ( unsafeMarkAsVbus
@@ -51,17 +51,17 @@ instance vbusCons1 ::
         )
     )
 
-else instance vbusCons2::
+else instance vbusCons2 ::
   ( IsSymbol key
   , R.Cons key (z -> m Unit) p' p
   , R.Cons key (AnEvent m z) e' e
-  , VBus rest p' e' u'
+  , VBusStation rest p' e' u'
   , R.Cons key z u' u
   , R.Lacks key p'
   , R.Lacks key e'
   , R.Lacks key u'
   ) =>
-  VBus (RL.Cons key z rest) p e u where
+  VBusStation (RL.Cons key z rest) p e u where
   vb _ _ _ = (unsafeCoerce :: { | u } -> V u) $ Record.insert
     (Proxy :: _ key)
     ((unsafeCoerce :: Unit -> z) unit)
@@ -81,17 +81,41 @@ foreign import unsafePE
    . V u
   -> m { p :: { | p }, e :: { | e }, s :: S }
 
-vbus
-  :: forall proxy ri i s m p e o u
+vbus :: VBusT
+vbus i = (\(VBus nt) -> nt) vbackdoor.vbus i
+
+type VBusT =
+  forall proxy ri i s m p e o u
    . RowToList i ri
   => MonadST s m
-  => VBus ri p e u
+  => VBusStation ri p e u
   => proxy (V i)
   -> ({ | p } -> { | e } -> o)
   -> AnEvent m o
-vbus _ f = makeEvent \k -> do
-  upe <- unsafePE vbd
-  k (f upe.p upe.e)
-  pure (unsafeDestroyS upe.s)
-  where
-  vbd = vb (Proxy :: _ ri) (Proxy :: _ p) (Proxy :: _ e)
+
+newtype VBus = VBus VBusT
+
+vbackdoor :: { vbus :: VBus }
+vbackdoor =
+  { vbus:
+      let
+        vbus__
+          :: forall proxy ri i s m p e o u
+           . RowToList i ri
+          => MonadST s m
+          => VBusStation ri p e u
+          => proxy (V i)
+          -> ({ | p } -> { | e } -> o)
+          -> AnEvent m o
+        vbus__ _ f = makeEvent \k -> do
+          upe <- unsafePE vbd
+          k (f upe.p upe.e)
+          pure (unsafeDestroyS upe.s)
+          where
+          vbd = vb (Proxy :: _ ri) (Proxy :: _ p) (Proxy :: _ e)
+
+        vbus_ :: VBus
+        vbus_ = VBus vbus__
+      in
+        vbus_
+  }

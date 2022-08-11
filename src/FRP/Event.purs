@@ -17,14 +17,22 @@ module FRP.Event
   , BusT
   , Bus
   , memoize
+  , MemoizeT
+  , Memoize
   , hot
+  , HotT
+  , Hot
   , mailboxed
-  , module Class
+  , MailboxedT
+  , Mailboxed
   , delay
+  , DelayT
+  , Delay
   , ToEvent
   , toEvent
   , FromEvent
   , fromEvent
+  , module Class
   ) where
 
 import Prelude
@@ -248,9 +256,6 @@ fix f =
 subscribe :: SubscribeT
 subscribe i = (\(Subscribe nt) -> nt) backdoor.subscribe i
 
-subscribe_ :: Subscribe
-subscribe_ = Subscribe \(AnEvent e) k -> e k
-
 type SubscribeT =
   forall m a
    . AnEvent m a
@@ -273,9 +278,6 @@ newtype MakeEvent = MakeEvent MakeEventT
 -- | control over unsubscription.
 makeEvent :: MakeEventT
 makeEvent i = (\(MakeEvent nt) -> nt) backdoor.makeEvent i
-
-makeEvent_ :: MakeEvent
-makeEvent_ = MakeEvent AnEvent
 
 type EventIO a =
   { event :: Event a
@@ -301,82 +303,41 @@ type CreateT =
 
 newtype Create = Create CreateT
 
-create_ :: Create
-create_ = Create do
-  subscribers <- liftST $ Ref.new []
-  pure
-    { event:
-        AnEvent \k -> do
-          _ <- liftST $ Ref.modify (_ <> [ k ]) subscribers
-          pure do
-            _ <- liftST $ Ref.modify (deleteBy unsafeRefEq k) subscribers
-            pure unit
-    , push:
-        \a -> do
-          (liftST $ (Ref.read subscribers)) >>= traverse_ \k -> k a
-    }
-
 -- | Creates an event bus within a closure.
 bus :: BusT
 bus i = (\(Bus nt) -> nt) backdoor.bus i
-
-bus_ :: Bus
-bus_ = Bus \f -> makeEvent \k -> do
-  { push, event } <- create
-  k (f push event)
-  pure (pure unit)
 
 type BusT = forall m s r a. MonadST s m => ((a -> m Unit) -> AnEvent m a -> r) -> AnEvent m r
 newtype Bus = Bus BusT
 
 -- | Takes the entire domain of a and allows for ad-hoc specialization.
-mailboxed :: forall m s r a b. Ord a => MonadST s m => AnEvent m { address :: a, payload :: b } -> ((a -> AnEvent m b) -> r) -> AnEvent m r
-mailboxed e f = makeEvent \k1 -> do
-  r <- liftST $ Ref.new Map.empty
-  k1 $ f \a -> makeEvent \k2 -> do
-    void $ liftST $ Ref.modify
-      ( Map.alter
-          ( case _ of
-              Nothing -> Just [ k2 ]
-              Just arr -> Just (arr <> [ k2 ])
-          )
-          a
-      )
-      r
-    pure $ void $ liftST $ Ref.modify
-      ( Map.alter
-          ( case _ of
-              Nothing -> Nothing
-              Just arr -> Just (deleteBy unsafeRefEq k2 arr)
-          )
-          a
-      )
-      r
-  unsub <- subscribe e \{ address, payload } -> do
-    o <- liftST $ Ref.read r
-    case Map.lookup address o of
-      Nothing -> pure unit
-      Just arr -> for_ arr (_ $ payload)
-  pure do
-    -- free references - helps gc?
-    void $ liftST $ Ref.write (Map.empty) r
-    unsub
+mailboxed :: MailboxedT
+mailboxed i = (\(Mailboxed nt) -> nt) backdoor.mailboxed i
+
+type MailboxedT = forall m s r a b. Ord a => MonadST s m => AnEvent m { address :: a, payload :: b } -> ((a -> AnEvent m b) -> r) -> AnEvent m r
+
+newtype Mailboxed = Mailboxed MailboxedT
 
 -- | Takes an event and memoizes it within a closure.
 -- | All interactions with the event in the closure will not trigger a fresh
 -- | subscription. Outside the closure does, however, trigger a fresh subscription.
-memoize :: forall m s r a. MonadST s m => AnEvent m a -> (AnEvent m a -> r) -> AnEvent m r
-memoize e f = makeEvent \k -> do
-  { push, event } <- create
-  k (f event)
-  subscribe e push
+memoize :: MemoizeT
+memoize i = (\(Memoize nt) -> nt) backdoor.memoize i
+
+type MemoizeT = forall m s r a. MonadST s m => AnEvent m a -> (AnEvent m a -> r) -> AnEvent m r
+newtype Memoize = Memoize MemoizeT
 
 -- | Makes an event hot, meaning that it will start firing on left-bind. This means that `pure` should never be used with `hot` as it will be lost. Use this for loops, for example.
-hot :: forall m s a. MonadST s m => AnEvent m a -> m { event :: AnEvent m a, unsubscribe :: m Unit }
-hot e = do
-  { event, push } <- create
-  unsubscribe <- subscribe e push
-  pure { event, unsubscribe }
+hot :: HotT
+hot i = (\(Hot nt) -> nt) backdoor.hot i
+
+type HotT =
+  forall m s a
+   . MonadST s m
+  => AnEvent m a
+  -> m { event :: AnEvent m a, unsubscribe :: m Unit }
+
+newtype Hot = Hot HotT
 
 --
 instance Action (Additive Int) (Event a) where
@@ -385,24 +346,11 @@ instance Action (Additive Int) (Event a) where
 instance Action (Additive Int) (STEvent a) where
   act = const identity
 
-delay :: forall a. Int -> Event a -> Event a
-delay n e =
-  makeEvent \k -> do
-    tid <- ERef.new (mempty :: Set TimeoutId)
-    canceler <-
-      subscribe e \a -> do
-        localId <- ERef.new Nothing
-        id <-
-          setTimeout n do
-            k a
-            lid <- ERef.read localId
-            maybe (pure unit) (\id -> ERef.modify_ (delete id) tid) lid
-        ERef.write (Just id) localId
-        ERef.modify_ (append (singleton id)) tid
-    pure do
-      ids <- ERef.read tid
-      for_ ids clearTimeout
-      canceler
+delay :: DelayT
+delay i = (\(Delay nt) -> nt) backdoor.delay i
+
+type DelayT = forall a. Int -> Event a -> Event a
+newtype Delay = Delay DelayT
 
 type ToEvent m a =
   Always (Endo Function (Effect Unit)) (Endo Function (m Unit))
@@ -435,10 +383,124 @@ backdoor
      , create :: Create
      , subscribe :: Subscribe
      , bus :: Bus
+     , memoize :: Memoize
+     , hot :: Hot
+     , mailboxed :: Mailboxed
+     , delay :: Delay
      }
 backdoor =
-  { makeEvent: makeEvent_
-  , create: create_
-  , subscribe: subscribe_
-  , bus: bus_
+  { makeEvent:
+      let
+        makeEvent_ :: MakeEvent
+        makeEvent_ = MakeEvent AnEvent
+      in
+        makeEvent_
+  , create:
+      let
+        create_ :: Create
+        create_ = Create do
+          subscribers <- liftST $ Ref.new []
+          pure
+            { event:
+                AnEvent \k -> do
+                  _ <- liftST $ Ref.modify (_ <> [ k ]) subscribers
+                  pure do
+                    _ <- liftST $ Ref.modify (deleteBy unsafeRefEq k) subscribers
+                    pure unit
+            , push:
+                \a -> do
+                  (liftST $ (Ref.read subscribers)) >>= traverse_ \k -> k a
+            }
+      in
+        create_
+  , subscribe:
+      let
+        subscribe_ :: Subscribe
+        subscribe_ = Subscribe \(AnEvent e) k -> e k
+      in
+        subscribe_
+  , bus:
+      let
+        bus_ :: Bus
+        bus_ = Bus \f -> makeEvent \k -> do
+          { push, event } <- create
+          k (f push event)
+          pure (pure unit)
+      in
+        bus_
+  , memoize:
+      let
+        memoize_ :: Memoize
+        memoize_ = Memoize \e f -> makeEvent \k -> do
+          { push, event } <- create
+          k (f event)
+          subscribe e push
+      in
+        memoize_
+  , hot:
+      let
+        hot_ :: Hot
+        hot_ = Hot \e -> do
+          { event, push } <- create
+          unsubscribe <- subscribe e push
+          pure { event, unsubscribe }
+      in
+        hot_
+  , mailboxed:
+      let
+        mailboxed_ :: Mailboxed
+        mailboxed_ = Mailboxed \e f -> makeEvent \k1 -> do
+          r <- liftST $ Ref.new Map.empty
+          k1 $ f \a -> makeEvent \k2 -> do
+            void $ liftST $ Ref.modify
+              ( Map.alter
+                  ( case _ of
+                      Nothing -> Just [ k2 ]
+                      Just arr -> Just (arr <> [ k2 ])
+                  )
+                  a
+              )
+              r
+            pure $ void $ liftST $ Ref.modify
+              ( Map.alter
+                  ( case _ of
+                      Nothing -> Nothing
+                      Just arr -> Just (deleteBy unsafeRefEq k2 arr)
+                  )
+                  a
+              )
+              r
+          unsub <- subscribe e \{ address, payload } -> do
+            o <- liftST $ Ref.read r
+            case Map.lookup address o of
+              Nothing -> pure unit
+              Just arr -> for_ arr (_ $ payload)
+          pure do
+            -- free references - helps gc?
+            void $ liftST $ Ref.write (Map.empty) r
+            unsub
+      in
+        mailboxed_
+  , delay:
+      let
+        delay_ :: Delay
+        delay_ = Delay \n e ->
+          makeEvent \k -> do
+            tid <- ERef.new (mempty :: Set TimeoutId)
+            canceler <-
+              subscribe e \a -> do
+                localId <- ERef.new Nothing
+                id <-
+                  setTimeout n do
+                    k a
+                    lid <- ERef.read localId
+                    maybe (pure unit) (\id -> ERef.modify_ (delete id) tid) lid
+                ERef.write (Just id) localId
+                ERef.modify_ (append (singleton id)) tid
+            pure do
+              ids <- ERef.read tid
+              for_ ids clearTimeout
+              canceler
+      in
+        delay_
   }
