@@ -217,8 +217,7 @@ biSampleOn (AnEvent e1) (AnEvent e2) =
     samples2 <- liftST $ STArray.freeze replay2
     case samples1 of
       -- if there are no samples in samples1, we still want to write samples2
-      [] -> for_ samples2 \f -> do
-            void $ liftST $ Ref.write (Just f) latest2
+      [] -> void $ liftST $ Ref.write (Array.last samples2) latest2
       _ -> for_ samples1 \a -> do
           -- We write the current values as we go through -- this would only matter for recursive events
           _ <- liftST $ Ref.write (Just a) latest1
