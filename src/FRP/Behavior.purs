@@ -72,6 +72,15 @@ instance heytingAlgebraABehavior :: (Functor event, HeytingAlgebra a) => Heyting
   conj = lift2 conj
   disj = lift2 disj
 
+instance semiringABehavior :: (Functor event, Semiring a) => Semiring (ABehavior event a) where
+  zero = pure zero
+  one = pure one
+  add = lift2 add
+  mul = lift2 mul
+
+instance ringABehavior :: (Functor event, Ring a) => Ring (ABehavior event a) where
+  sub = lift2 sub
+
 -- | Construct a `Behavior` from its sampling function.
 behavior :: forall event a. (forall b. event (a -> b) -> event b) -> ABehavior event a
 behavior = ABehavior

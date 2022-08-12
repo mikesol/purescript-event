@@ -159,6 +159,15 @@ instance heytingAlgebraEvent :: (HeytingAlgebra a, MonadST s m) => HeytingAlgebr
   conj = lift2 conj
   disj = lift2 disj
 
+instance semiringEvent :: (Semiring a, MonadST s m) => Semiring (AnEvent m a) where
+  zero = pure zero
+  one = pure one
+  add = lift2 add
+  mul = lift2 mul
+
+instance ringEvent :: (Ring a, MonadST s m) => Ring (AnEvent m a) where
+  sub = lift2 sub
+
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall m s a b. MonadST s m => (a -> b -> b) -> AnEvent m a -> b -> AnEvent m b
 fold f (AnEvent e) b =
