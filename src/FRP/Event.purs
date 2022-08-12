@@ -38,6 +38,7 @@ module FRP.Event
 
 import Prelude
 
+import Data.Array as Array
 import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (class MonadST, liftST)
