@@ -169,11 +169,11 @@ instance ringEvent :: (Ring a, MonadST s m) => Ring (AnEvent m a) where
   sub = lift2 sub
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
-fold :: forall m s a b. MonadST s m => (a -> b -> b) -> AnEvent m a -> b -> AnEvent m b
-fold f (AnEvent e) b =
+fold :: forall m s a b. MonadST s m => (b -> a -> b) -> b -> AnEvent m a -> AnEvent m b
+fold f b (AnEvent e) =
   AnEvent \k -> do
     result <- liftST (Ref.new b)
-    e \a -> liftST (Ref.modify (f a) result) >>= k
+    e \a -> liftST (Ref.modify (flip f a) result) >>= k
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall m a b. Applicative m => (a -> Maybe b) -> AnEvent m a -> AnEvent m b
@@ -185,16 +185,16 @@ filter p (AnEvent e) =
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires.
-sampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
+sampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m (a -> b) -> AnEvent m a -> AnEvent m b
 sampleOn (AnEvent e1) (AnEvent e2) =
   AnEvent \k -> do
     latest <- liftST $ Ref.new Nothing
     c1 <-
-      e1 \a -> do
-        liftST $ void $ Ref.write (Just a) latest
+      e1 \f -> do
+        liftST $ void $ Ref.write (Just f) latest
     c2 <-
-      e2 \f -> do
-        (liftST $ Ref.read latest) >>= traverse_ (k <<< f)
+      e2 \a -> do
+        (liftST $ Ref.read latest) >>= traverse_ \f -> k (f a)
     pure (c1 *> c2)
 
 biSampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b

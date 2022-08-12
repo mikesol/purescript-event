@@ -162,7 +162,7 @@ main = do
                   { push, event } <- create
                   let
                     x = context event \i -> do
-                      let foldy = (fold (\_ b -> b + 1) i 0)
+                      let foldy = (fold (\b _ -> b + 1) 0 i)
                       let add2 = map (add 2) foldy
                       let add3 = map (add 3) add2
                       let add4 = map (add 4) add3
@@ -188,10 +188,10 @@ main = do
                       let add1 = map (add 1) i
                       let add2 = map (add 2) add1
                       let add3 = map (add 3) add2
-                      let foldy = fold (\a b -> a + b) add3 0
+                      let foldy = fold (\a b -> a + b) 0 add3
                       let add4 = map (add 4) add3
                       let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                      sampleOn (map (/\) add2) (filter (_ > 5) altr)
                   unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
@@ -546,7 +546,7 @@ main = do
                   { push, event } <- lift $ Event.create
                   let
                     x = event # \i -> do
-                      let foldy = (fold (\_ b -> b + 1) i 0)
+                      let foldy = (fold (\b _ -> b + 1) 0 i)
                       let add2 = map (add 2) foldy
                       let add3 = map (add 3) add2
                       let add4 = map (add 4) add3
@@ -574,10 +574,10 @@ main = do
                       let add1 = map (add 1) i
                       let add2 = map (add 2) add1
                       let add3 = map (add 3) add2
-                      let foldy = fold (\a b -> a + b) add3 0
+                      let foldy = fold (\a b -> a + b) 0 add3
                       let add4 = map (add 4) add3
                       let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                      sampleOn (map (/\) add2) (filter (_ > 5) altr)
                   unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
                   lift $ push 0
                   (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 6 ]

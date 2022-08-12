@@ -199,17 +199,17 @@ instance filterableSemantic :: Filterable (Semantic time) where
     where go { yes, no } = { yes: Semantic yes, no: Semantic no }
 
 instance isEventSemantic :: Bounded time => IsEvent (Semantic time) where
-  fold :: forall a b. (a -> b -> b) -> Semantic time a -> b -> Semantic time b
-  fold f (Semantic xs) b0 = Semantic ((mapAccumL step b0 xs).value) where
+  fold :: forall a b. (b -> a -> b) -> b -> Semantic time a -> Semantic time b
+  fold f b0 (Semantic xs) = Semantic ((mapAccumL step b0 xs).value) where
     step b (Tuple t a) =
-      let b' = f a b
+      let b' = f b a
       in { accum: b'
          , value: Tuple t b'
          }
 
-  sampleOn :: forall a b. Semantic time a -> Semantic time (a -> b) -> Semantic time b
+  sampleOn :: forall a b. Semantic time (a -> b) -> Semantic time a -> Semantic time b
   sampleOn (Semantic xs) (Semantic ys) = Semantic (filterMap go ys) where
-    go (Tuple t f) = map f <$> latestAt t xs
+    go (Tuple t f) = map ((#) f) <$> latestAt t xs
 
   keepLatest :: forall a. Semantic time (Semantic time a) -> Semantic time a
   keepLatest (Semantic es) = Semantic (go es) where
