@@ -21,12 +21,12 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (Backdoor, EventIO, MakeEvent(..), MakeEventT, backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
+import FRP.Event (Backdoor, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
-import Test.Spec (Spec, describe, it)
+import Test.Spec (Spec, describe, it, itOnly)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
@@ -357,6 +357,17 @@ main = do
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
         describe "Apply" do
+          it "respects both sides of application" $ liftEffect do
+            {event, push} <- Event.create
+            rf0 <- Ref.new ""
+            rf1 <- Ref.new ""
+            void $ Event.subscribe ((append <$> pure "a") <*> event) (flip Ref.write rf0)
+            void $ Event.subscribe ((append <$> event) <*> pure "b") (flip Ref.write rf1)
+            push "c"
+            rf0' <- Ref.read rf0
+            rf1' <- Ref.read rf1
+            rf0' `shouldEqual` "ac"
+            rf1' `shouldEqual` "cb"
           it "always applies updates from left to right, emitting at each update" $ liftEffect do
             rf <- Ref.new []
             { push, event } <- Event.create

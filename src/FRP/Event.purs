@@ -215,12 +215,16 @@ biSampleOn (AnEvent e1) (AnEvent e2) =
     _ <- liftST $ Ref.write false capturing
     samples1 <- liftST $ STArray.freeze replay1
     samples2 <- liftST $ STArray.freeze replay2
-    for_ samples1 \a -> do
-      -- We write the current values as we go through -- this would only matter for recursive events
-      _ <- liftST $ Ref.write (Just a) latest1
-      for_ samples2 \f -> do
-        _ <- liftST $ Ref.write (Just f) latest2
-        k (f a)
+    case samples1 of
+      -- if there are no samples in samples1, we still want to write samples2
+      [] -> for_ samples2 \f -> do
+            void $ liftST $ Ref.write (Just f) latest2
+      _ -> for_ samples1 \a -> do
+          -- We write the current values as we go through -- this would only matter for recursive events
+          _ <- liftST $ Ref.write (Just a) latest1
+          for_ samples2 \f -> do
+            _ <- liftST $ Ref.write (Just f) latest2
+            k (f a)
     -- Free the samples so they can be GCed
     _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
     _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
