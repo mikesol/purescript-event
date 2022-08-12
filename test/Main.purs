@@ -8,7 +8,7 @@ import Control.Monad.ST.Internal as RRef
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
-import Data.Array (cons, replicate)
+import Data.Array (cons, snoc, replicate)
 import Data.Filterable (filter)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
@@ -21,10 +21,9 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (hot, keepLatest, makeEvent, memoize, sampleOn, mailboxed)
+import FRP.Event (Backdoor, EventIO, MakeEvent(..), MakeEventT, backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
 import FRP.Event as Event
-import FRP.Event.Class (class IsEvent, bang, fold)
-import FRP.Event.Legacy as Legacy
+import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (Spec, describe, it)
@@ -33,6 +32,9 @@ import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
+import Unsafe.Coerce (unsafeCoerce)
+
+foreign import unsafeBackdoor :: MakeEvent -> Backdoor -> Effect MakeEvent
 
 refToBehavior :: Ref.Ref ~> Behavior
 refToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f -> Ref.read r >>=
@@ -60,6 +62,7 @@ main = do
           suite
             :: forall event
              . IsEvent event
+            => Applicative event
             => String
             -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
             -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
@@ -70,7 +73,7 @@ main = do
               it "should do simple stuff" do
                 liftEffect do
                   rf <- Ref.new []
-                  unsub <- subscribe (context (bang 0) identity) \i -> Ref.modify_ (cons i) rf
+                  unsub <- subscribe (context (pure 0) identity) \i -> Ref.modify_ (cons i) rf
                   o <- Ref.read rf
                   o `shouldEqual` [ 0 ]
                   unsub
@@ -93,7 +96,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -109,7 +112,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = (map (add 1) i)
                         add2 = map (add 2) add1
@@ -126,7 +129,7 @@ main = do
                 liftEffect do
                   rf <- Ref.new []
                   let
-                    x = context (bang 0) \i ->
+                    x = context (pure 0) \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -143,7 +146,7 @@ main = do
               it "should handle filter 2" do
                 liftEffect do
                   rf <- Ref.new []
-                  let add1 = (map (add 1) (bang 0))
+                  let add1 = (map (add 1) (pure 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
                   let add4 = map (add 4) add3
@@ -199,8 +202,19 @@ main = do
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
                   unsub
+              it "should match Applicative Array instance" do
+                liftEffect do
+                  let
+                    x :: Array (Tuple Int Int)
+                    x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+
+                    e :: event (Tuple Int Int)
+                    e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+                  rf <- Ref.new []
+                  unsub <- subscribe e (\i -> Ref.modify_ (flip snoc i) rf)
+                  Ref.read rf >>= shouldEqual x
+                  unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
-        suite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
         let
           performanceSuite
             :: forall event
@@ -266,7 +280,6 @@ main = do
                   ends <- getTime <$> now
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
-        performanceSuite "Legacy" (\i f -> f i) Legacy.create Legacy.subscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -343,15 +356,26 @@ main = do
             r' <- liftEffect $ Ref.read r
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
-        describe "Legacy" do
-          it "has a somewhat puzzling result when it adds itself to itself (2 + 2 = 3)" $ liftEffect do
+        describe "Apply" do
+          it "always applies updates from left to right, emitting at each update" $ liftEffect do
             rf <- Ref.new []
-            { push, event } <- Legacy.create
-            unsub <- Legacy.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (cons i) rf
-            push 2
+            { push, event } <- Event.create
+            unsub <- Event.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (flip snoc i) rf
             push 1
+            push 2
             o <- Ref.read rf
             o `shouldEqual` [ 2, 3, 4 ]
+            unsub
+          it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
+            rf <- Ref.new []
+            { push, event } <- Event.create
+            let addSixNums x y z a b c = x + y + z + a + b + c
+            unsub <- Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i -> Ref.modify_ (flip snoc i) rf
+            push 1
+            push 2
+            o <- Ref.read rf
+            o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
+            unsub
         describe "VBus" do
           it "works with simple pushing" $ liftEffect do
             r <- Ref.new []
@@ -421,7 +445,7 @@ main = do
             run
               ( execWriterT do
                   rf <- lift (fresh [])
-                  unsub <- lift (Event.subscribe (bang 0) \i -> modify__ (cons i) rf)
+                  unsub <- lift (Event.subscribe (pure 0) \i -> modify__ (cons i) rf)
                   o <- lift (RRef.read rf)
                   tell (o `shouldEqual` [ 0 ])
                   lift unsub
@@ -448,7 +472,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -466,7 +490,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = (map (add 1) i)
                         add2 = map (add 2) add1
@@ -485,7 +509,7 @@ main = do
               ( execWriterT do
                   rf <- lift $ fresh []
                   let
-                    x = (bang 0) # \i ->
+                    x = (pure 0) # \i ->
                       let
                         add1 = map (add 1) i
                         add2 = map (add 2) add1
@@ -504,7 +528,7 @@ main = do
             run
               ( execWriterT do
                   rf <- lift $ fresh []
-                  let add1 = (map (add 1) (bang 0))
+                  let add1 = (map (add 1) (pure 0))
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
                   let add4 = map (add 4) add3
@@ -570,20 +594,20 @@ main = do
             rf <- Ref.new []
             e <- Event.create
             unsub <- Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i -> Ref.modify_ (cons i) rf
-            e.push 42
-            e.push 43
-            e.push 44
-            e.push 3 --
-            e.push 42
-            e.push 43
-            e.push 44
-            e.push 4 --
-            e.push 42
-            e.push 43
-            e.push 3 --
-            e.push 101
+            e.push { address: 42, payload: true }
+            e.push { address: 43, payload: true }
+            e.push { address: 44, payload: true }
+            e.push { address: 3, payload: true } --
+            e.push { address: 42, payload: false }
+            e.push { address: 43, payload: true }
+            e.push { address: 43, payload: false }
+            e.push { address: 4, payload: false } --
+            e.push { address: 42, payload: false }
+            e.push { address: 43, payload: true }
+            e.push { address: 3, payload: false } --
+            e.push { address: 101, payload: true }
             o <- Ref.read rf
-            o `shouldEqual` [ unit, unit, unit ]
+            o `shouldEqual` [ false, false, true ]
             unsub
         describe "Gate" do
           it "gates" $ liftEffect do
@@ -603,3 +627,16 @@ main = do
             eio.push unit
             res <- Ref.read n
             shouldEqual res 3
+        describe "backdoor" do
+          it "works" $ liftEffect do
+            hack :: EventIO Int <- Event.create
+            rf <- Ref.new []
+            old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
+            let e0 = Event.makeEvent \k -> k 42 *> pure (pure unit)
+            _ <- Event.subscribe e0 \i -> Ref.modify_ (cons i) rf
+            hack.push 1
+            hack.push 2
+            hack.push 3
+            a <- Ref.read rf
+            _ <- unsafeBackdoor old backdoor
+            shouldEqual a [ 3, 2, 1 ]

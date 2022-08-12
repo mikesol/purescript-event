@@ -18,7 +18,7 @@ import Data.Newtype (wrap)
 import Data.Set as Set
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (Event, bang, makeEvent, subscribe)
+import FRP.Event (Event, makeEvent, subscribe)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
 import Web.HTML.Window (toEventTarget)
@@ -60,7 +60,7 @@ disposeMouse (Mouse { dispose }) = dispose
 
 -- | Create an `Event` which fires when the mouse moves
 move :: Mouse -> Event { x :: Int, y :: Int }
-move m = compact (_.pos <$> withPosition m (bang unit))
+move m = compact (_.pos <$> withPosition m (pure unit))
 
 -- | Create an `Event` which fires when a mouse button is pressed
 down :: Event Int

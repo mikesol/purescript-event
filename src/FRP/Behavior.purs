@@ -28,12 +28,12 @@ import Control.Alt (alt)
 import Control.Apply (lift2)
 import Data.Filterable (class Filterable, compact)
 import Data.Function (applyFlipped)
+import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
 import FRP.Event (class IsEvent, AnEvent, fix, fold, keepLatest, sampleOn, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
-import FRP.Event.Class (bang)
 
 -- | `ABehavior` is the more general type of `Behavior`, which is parameterized
 -- | over some underlying `event` type.
@@ -64,6 +64,23 @@ instance semigroupABehavior :: (Functor event, Semigroup a) => Semigroup (ABehav
 instance monoidABehavior :: (Functor event, Monoid a) => Monoid (ABehavior event a) where
   mempty = pure mempty
 
+instance heytingAlgebraABehavior :: (Functor event, HeytingAlgebra a) => HeytingAlgebra (ABehavior event a) where
+  tt = pure tt
+  ff = pure ff
+  not = map not
+  implies = lift2 implies
+  conj = lift2 conj
+  disj = lift2 disj
+
+instance semiringABehavior :: (Functor event, Semiring a) => Semiring (ABehavior event a) where
+  zero = pure zero
+  one = pure one
+  add = lift2 add
+  mul = lift2 mul
+
+instance ringABehavior :: (Functor event, Ring a) => Ring (ABehavior event a) where
+  sub = lift2 sub
+
 -- | Construct a `Behavior` from its sampling function.
 behavior :: forall event a. (forall b. event (a -> b) -> event b) -> ABehavior event a
 behavior = ABehavior
@@ -71,7 +88,7 @@ behavior = ABehavior
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (sampleOn (bang a `alt` e))
+step a e = ABehavior (sampleOn (pure a `alt` e))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -94,7 +111,7 @@ sample_ = sampleBy const
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall event a. IsEvent event => ABehavior event a -> event (ABehavior event a) -> ABehavior event a
 switcher b0 e = behavior \s ->
-  keepLatest (bang (sample b0 s) `alt` map (\b -> sample b s) e)
+  keepLatest (pure (sample b0 s) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> ABehavior event p -> event a -> event a

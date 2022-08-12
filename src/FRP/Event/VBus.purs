@@ -1,4 +1,4 @@
-module FRP.Event.VBus where
+module FRP.Event.VBus (V, vbus, class VBus, VbusT, Vbus(..), vb, vbackdoor, VBackdoor) where
 
 import Prelude
 
@@ -51,7 +51,7 @@ instance vbusCons1 ::
         )
     )
 
-else instance vbusCons2::
+else instance vbusCons2 ::
   ( IsSymbol key
   , R.Cons key (z -> m Unit) p' p
   , R.Cons key (AnEvent m z) e' e
@@ -81,17 +81,43 @@ foreign import unsafePE
    . V u
   -> m { p :: { | p }, e :: { | e }, s :: S }
 
-vbus
-  :: forall proxy ri i s m p e o u
+vbus :: VbusT
+vbus i = (\(Vbus nt) -> nt) vbackdoor.vbus i
+
+type VbusT =
+  forall proxy ri i s m p e o u
    . RowToList i ri
   => MonadST s m
   => VBus ri p e u
   => proxy (V i)
   -> ({ | p } -> { | e } -> o)
   -> AnEvent m o
-vbus _ f = makeEvent \k -> do
-  upe <- unsafePE vbd
-  k (f upe.p upe.e)
-  pure (unsafeDestroyS upe.s)
-  where
-  vbd = vb (Proxy :: _ ri) (Proxy :: _ p) (Proxy :: _ e)
+
+newtype Vbus = Vbus VbusT
+
+type VBackdoor = { vbus :: Vbus }
+
+vbackdoor :: VBackdoor
+vbackdoor =
+  { vbus:
+      let
+        vbus__
+          :: forall proxy ri i s m p e o u
+           . RowToList i ri
+          => MonadST s m
+          => VBus ri p e u
+          => proxy (V i)
+          -> ({ | p } -> { | e } -> o)
+          -> AnEvent m o
+        vbus__ _ f = makeEvent \k -> do
+          upe <- unsafePE vbd
+          k (f upe.p upe.e)
+          pure (unsafeDestroyS upe.s)
+          where
+          vbd = vb (Proxy :: _ ri) (Proxy :: _ p) (Proxy :: _ e)
+
+        vbus_ :: Vbus
+        vbus_ = Vbus vbus__
+      in
+        vbus_
+  }

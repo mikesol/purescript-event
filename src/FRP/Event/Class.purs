@@ -9,7 +9,6 @@ module FRP.Event.Class
   , sampleOn
   , sampleOn_
   , keepLatest
-  , bang
   , fix
   , gate
   , gateBy
@@ -18,7 +17,7 @@ module FRP.Event.Class
 
 import Prelude
 
-import Control.Alternative (class Plus, (<|>))
+import Control.Alternative (class Alternative, (<|>))
 import Data.Compactable (compact)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -34,12 +33,11 @@ import Data.Tuple (Tuple(..), snd)
 -- | - `fix`: compute a fixed point, by feeding output events back in as
 -- | inputs.
 -- | - `bang`: A one-shot event that happens NOW.
-class (Plus event, Filterable event) <= IsEvent event where
+class (Alternative event, Filterable event) <= IsEvent event where
   fold :: forall a b. (a -> b -> b) -> event a -> b -> event b
   keepLatest :: forall a. event (event a) -> event a
   sampleOn :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
-  bang :: forall a. a -> event a
 
 -- | Count the number of events received.
 count :: forall event a. IsEvent event => event a -> event Int
@@ -76,7 +74,7 @@ sampleOn_ a b = sampleOn a (b $> identity)
 
 -- | Creates a bi-directional `sampleOn`. That is, the first event samples on the second and vice versa.
 biSampleOn :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
-biSampleOn a b = sampleOn a b <|> sampleOn b (map (#) a)
+biSampleOn a b = (#) <$> a <*> b
 
 -- | Sample the events that are fired while a boolean event is true. Note that,
 -- | until the boolean event fires, it will be assumed to be `false`, and events
@@ -94,5 +92,5 @@ gateBy
   -> event b
   -> event b
 gateBy f sampled = compact
-  <<< sampleOn (bang Nothing <|> Just <$> sampled)
+  <<< sampleOn (pure Nothing <|> Just <$> sampled)
   <<< map \x p -> if f p x then Just x else Nothing
