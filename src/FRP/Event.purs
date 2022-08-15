@@ -26,6 +26,7 @@ module FRP.Event
   , create
   , delay
   , fromEvent
+  , fromStEvent
   , hot
   , mailboxed
   , makeEvent
@@ -33,6 +34,7 @@ module FRP.Event
   , module Class
   , subscribe
   , toEvent
+  , toStEvent
   )
   where
 
@@ -63,7 +65,7 @@ import Effect (Effect)
 import Effect.Ref as ERef
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
-import Hyrule.Zora (Zora, liftImpure, runImpure)
+import Hyrule.Zora (Zora, liftImpure, liftPure, runImpure, runPure)
 import Unsafe.Reference (unsafeRefEq)
 
 -- | An `Event` represents a collection of discrete occurrences with associated
@@ -388,8 +390,14 @@ newtype Delay = Delay DelayT
 fromEvent :: Event ~> AnEvent Zora
 fromEvent (AnEvent e) = AnEvent $ dimap (map runImpure) (map liftImpure <<< liftImpure) e
 
+fromStEvent :: STEvent ~> AnEvent Zora
+fromStEvent (AnEvent e) = AnEvent $ dimap (map runPure) (map liftPure <<< liftPure) e
+
 toEvent :: AnEvent Zora ~> Event
 toEvent (AnEvent e) = AnEvent $ dimap (map liftImpure) (map runImpure <<< runImpure) e
+
+toStEvent :: AnEvent Zora ~> STEvent
+toStEvent (AnEvent e) = AnEvent $ dimap (map liftPure) (map runPure <<< runPure) e
 
 type Backdoor = { makeEvent :: MakeEvent
      , create :: Create
