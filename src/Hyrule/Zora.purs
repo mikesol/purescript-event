@@ -11,6 +11,7 @@ module Hyrule.Zora
 
 import Prelude
 
+import Control.Apply (lift2)
 import Control.Monad.Rec.Class (class MonadRec, Step(..), tailRecM)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (class MonadST)
@@ -58,6 +59,12 @@ instance Bind Zora where
     )
 
 instance Monad Zora
+
+instance Semigroup a => Semigroup (Zora a) where
+  append = lift2 append
+
+instance Monoid a => Monoid (Zora a) where
+  mempty = pure mempty
 
 instance MonadST Global Zora where
   liftST = liftPure
