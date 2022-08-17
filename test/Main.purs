@@ -257,6 +257,58 @@ makeSuite unlift name = do
         unlift $ u
         ends <- getTime <$> now
         write ("Duration: " <> show (ends - starts) <> "\n")
+    describe "Memoization" do
+      it "should not memoize" $ liftEffect do
+        { push, event } <- unlift Event.create
+        count <- Ref.new 0
+        let
+          fn v =
+            unsafePerformEffect do
+              Ref.modify_ (add 1) count
+              pure $ v
+        let mapped = identity (map fn event)
+        u1 <- unlift $ Event.subscribe mapped (pure (pure unit))
+        u2 <- unlift $ Event.subscribe mapped (pure (pure unit))
+        unlift $ push 0
+        Ref.read count >>= shouldEqual 2
+        unlift $ u1
+        unlift $ u2
+      it "should memoize" $ liftEffect do
+        { push, event } <- unlift Event.create
+        count <- Ref.new 0
+        let
+          fn v =
+            unsafePerformEffect do
+              Ref.modify_ (add 1) count
+              pure $ v
+          mapped = keepLatest $
+            memoize (identity (map fn event)) \e -> Event.makeEvent \k -> do
+              u1 <- Event.subscribe e (\_ -> pure unit)
+              u2 <- Event.subscribe e k
+              pure (u1 *> u2)
+        u <- unlift $ Event.subscribe mapped (\_ -> pure unit)
+        unlift $ push 0
+        Ref.read count >>= shouldEqual 1
+        unlift u
+      it "should not memoize when applied internally" $ liftEffect do
+        { push, event } <- unlift Event.create
+        count <- Ref.new 0
+        let
+          fn v =
+            unsafePerformEffect do
+              Ref.modify_ (add 1) count
+              pure $ v
+          mapped = keepLatest
+            $ memoize event
+            $ (lcmap (identity <<< map fn)) \e ->
+                Event.makeEvent \k -> do
+                  u1 <- Event.subscribe e (\_ -> pure unit)
+                  u2 <- Event.subscribe e k
+                  pure (u1 *> u2)
+        u <- unlift $ Event.subscribe mapped (\_ -> pure unit)
+        unlift $ push 0
+        Ref.read count >>= shouldEqual 2
+        unlift $ u
 
 main :: Effect Unit
 main = do
@@ -265,65 +317,6 @@ main = do
         makeSuite identity "Event"
         makeSuite toEffect "STEvent"
         makeSuite runImpure "ZoraEvent"
-        describe "Testing memoization" do
-          it "should not memoize" do
-            liftEffect do
-              { push, event } <- Event.create
-              count <- Ref.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let mapped = identity (map fn event)
-              unsub1 <- Event.subscribe mapped (pure (pure unit))
-              unsub2 <- Event.subscribe mapped (pure (pure unit))
-              push 0
-              Ref.read count >>= shouldEqual 2
-              unsub1
-              unsub2
-          it "should memoize" do
-            liftEffect do
-              { push, event } <- Event.create
-              count <- Ref.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let
-                mapped = keepLatest $
-                  memoize (identity (map fn event)) \e -> Event.makeEvent \k -> do
-                    unsub1 <- Event.subscribe e mempty
-                    unsub2 <- Event.subscribe e k
-                    pure (unsub1 *> unsub2)
-
-              usu <- Event.subscribe mapped (mempty)
-              push 0
-              Ref.read count >>= shouldEqual 1
-              usu
-          it "should not memoize when applied internally" do
-            liftEffect do
-              { push, event } <- Event.create
-              count <- Ref.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let
-                mapped = keepLatest
-                  $ memoize event
-                  $ (lcmap (identity <<< map fn)) \e ->
-                      Event.makeEvent \k -> do
-                        unsub1 <- Event.subscribe e mempty
-                        unsub2 <- Event.subscribe e k
-                        pure (unsub1 *> unsub2)
-
-              usu <- Event.subscribe mapped (mempty)
-              push 0
-              Ref.read count >>= shouldEqual 2
-              usu
         describe "Hot" do
           it "is hot" do
             r <- liftEffect $ Ref.new 0
