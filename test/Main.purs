@@ -21,12 +21,13 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (Backdoor, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
+import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), backdoor, fromEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, toEvent)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
-import Test.Spec (Spec, describe, it, itOnly)
+import Hyrule.Zora (Zora)
+import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
@@ -216,6 +217,13 @@ main = do
                   unsub
         suite "Event" (\i f -> f i) Event.create Event.subscribe
         let
+          zoraCreate :: forall a. Effect { event :: AnEvent Zora a , push :: a -> Effect Unit }
+          zoraCreate = Event.create <#> \r -> r { event = fromEvent r.event }
+
+          zoraSubscribe :: forall a. AnEvent Zora a -> (a -> Effect Unit) -> Effect (Effect Unit)
+          zoraSubscribe = Event.subscribe <<< toEvent
+        suite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
+        let
           performanceSuite
             :: forall event
              . IsEvent event
@@ -280,6 +288,7 @@ main = do
                   ends <- getTime <$> now
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
+        performanceSuite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
