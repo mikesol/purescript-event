@@ -442,124 +442,125 @@ main = do
         makeSuite identity "Event"
         makeSuite toEffect "STEvent"
         makeSuite runImpure "ZoraEvent"
-        describe "Hot" do
-          it "should work" do
-            r <- liftEffect $ Ref.new 0
-            x <- liftEffect $ Ref.new 0
-            let
-              subs e = makeEvent \k -> do
-                Ref.modify_ (add 1) r
-                Event.subscribe e k
-            { event, unsubscribe } <- liftEffect $ hot (subs (interval 50))
-            u0 <- liftEffect $ Event.subscribe event \_ -> Ref.modify_ (add 1) x
-            u1 <- liftEffect $ Event.subscribe event \_ -> Ref.modify_ (add 1) x
-            delay (Milliseconds 800.0)
-            liftEffect $ u0 *> u1 *> unsubscribe
-            x' <- liftEffect $ Ref.read x
-            r' <- liftEffect $ Ref.read r
-            x' `shouldSatisfy` (_ > 10)
-            r' `shouldEqual` 1
-        describe "Fix" do
-          it "should work" do
-            { event, push } <- liftEffect Event.create
-            rf <- liftEffect $ Ref.new []
-            unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
-            liftEffect do
-              push 1
-              push 2
-              push 3
-              push 4
-            delay (Milliseconds 1500.0)
-            liftEffect do
-              push 5
-              push 6
-              o <- Ref.read rf
-              o `shouldEqual` [ 5, 1 ]
-              unsub
-        describe "Backdoor" do
-          it "should work" $ liftEffect do
-            hack :: EventIO Int <- Event.create
-            rf <- Ref.new []
-            old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
-            let e0 = Event.makeEvent \k -> k 42 *> pure (pure unit)
-            _ <- Event.subscribe e0 \i -> Ref.modify_ (cons i) rf
-            hack.push 1
-            hack.push 2
-            hack.push 3
-            a <- Ref.read rf
-            _ <- unsafeBackdoor old backdoor
-            shouldEqual a [ 3, 2, 1 ]
-        describe "Zora" do
-          it "nullifies effect" $ liftEffect do
-            stRef <- toEffect $ STRef.new []
-            efRef <- Ref.new []
-            toEffect $ runPure do
-              liftImpure do
-                Ref.modify_ (Array.cons 0) efRef
-              liftPure do
-                void $ STRef.modify (Array.cons 0) stRef
-            stValue <- toEffect $ STRef.read stRef
-            efValue <- Ref.read efRef
-            stValue `shouldEqual` [ 0 ]
-            efValue `shouldEqual` []
-          it "performs effect" $ liftEffect do
-            stRef <- toEffect $ STRef.new []
-            efRef <- Ref.new []
-            runImpure do
-              liftImpure do
-                Ref.modify_ (Array.cons 0) efRef
-              liftPure do
-                void $ STRef.modify (Array.cons 0) stRef
-            stValue <- toEffect $ STRef.read stRef
-            efValue <- Ref.read efRef
-            stValue `shouldEqual` [ 0 ]
-            efValue `shouldEqual` [ 0 ]
-          describe "Hyrule" do
-            it "fromStEvent+toEvent" $ liftEffect do
-              efRef <- Ref.new []
+        describe "Miscellaneous" do
+          describe "Hot" do
+            it "should work" do
+              r <- liftEffect $ Ref.new 0
+              x <- liftEffect $ Ref.new 0
               let
-                stEvent :: STEvent Int
-                stEvent = pure 0
-
-                zrEvent :: ZoraEvent Int
-                zrEvent = fromStEvent stEvent
-              _ <- subscribe (toEvent zrEvent) \k ->
-                Ref.modify_ (Array.cons k) efRef
-              efValue <- Ref.read efRef
-              efValue `shouldEqual` [ 0 ]
-            it "fromEvent+toEvent" $ liftEffect do
-              efRef <- Ref.new []
-              let
-                efEvent :: Event Int
-                efEvent = pure 0
-
-                zrEvent :: ZoraEvent Int
-                zrEvent = fromEvent efEvent
-              _ <- subscribe (toEvent zrEvent) \k ->
-                Ref.modify_ (Array.cons k) efRef
-              efValue <- Ref.read efRef
-              efValue `shouldEqual` [ 0 ]
-            it "fromStEvent+toStEvent" $ liftEffect do
+                subs e = makeEvent \k -> do
+                  Ref.modify_ (add 1) r
+                  Event.subscribe e k
+              { event, unsubscribe } <- liftEffect $ hot (subs (interval 50))
+              u0 <- liftEffect $ Event.subscribe event \_ -> Ref.modify_ (add 1) x
+              u1 <- liftEffect $ Event.subscribe event \_ -> Ref.modify_ (add 1) x
+              delay (Milliseconds 800.0)
+              liftEffect $ u0 *> u1 *> unsubscribe
+              x' <- liftEffect $ Ref.read x
+              r' <- liftEffect $ Ref.read r
+              x' `shouldSatisfy` (_ > 10)
+              r' `shouldEqual` 1
+          describe "Fix" do
+            it "should work" do
+              { event, push } <- liftEffect Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
+              liftEffect do
+                push 1
+                push 2
+                push 3
+                push 4
+              delay (Milliseconds 1500.0)
+              liftEffect do
+                push 5
+                push 6
+                o <- Ref.read rf
+                o `shouldEqual` [ 5, 1 ]
+                unsub
+          describe "Backdoor" do
+            it "should work" $ liftEffect do
+              hack :: EventIO Int <- Event.create
+              rf <- Ref.new []
+              old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
+              let e0 = Event.makeEvent \k -> k 42 *> pure (pure unit)
+              _ <- Event.subscribe e0 \i -> Ref.modify_ (cons i) rf
+              hack.push 1
+              hack.push 2
+              hack.push 3
+              a <- Ref.read rf
+              _ <- unsafeBackdoor old backdoor
+              shouldEqual a [ 3, 2, 1 ]
+          describe "Zora" do
+            it "nullifies effect" $ liftEffect do
               stRef <- toEffect $ STRef.new []
-              let
-                stEvent :: STEvent Int
-                stEvent = pure 0
-
-                zrEvent :: ZoraEvent Int
-                zrEvent = fromStEvent stEvent
-              _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
-                void $ STRef.modify (Array.cons k) stRef
+              efRef <- Ref.new []
+              toEffect $ runPure do
+                liftImpure do
+                  Ref.modify_ (Array.cons 0) efRef
+                liftPure do
+                  void $ STRef.modify (Array.cons 0) stRef
               stValue <- toEffect $ STRef.read stRef
+              efValue <- Ref.read efRef
               stValue `shouldEqual` [ 0 ]
-            it "fromEvent+toStEvent" $ liftEffect do
+              efValue `shouldEqual` []
+            it "performs effect" $ liftEffect do
               stRef <- toEffect $ STRef.new []
-              let
-                efEvent :: Event Int
-                efEvent = pure 0
-
-                zrEvent :: ZoraEvent Int
-                zrEvent = fromEvent efEvent
-              _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
-                void $ STRef.modify (Array.cons k) stRef
+              efRef <- Ref.new []
+              runImpure do
+                liftImpure do
+                  Ref.modify_ (Array.cons 0) efRef
+                liftPure do
+                  void $ STRef.modify (Array.cons 0) stRef
               stValue <- toEffect $ STRef.read stRef
-              stValue `shouldEqual` []
+              efValue <- Ref.read efRef
+              stValue `shouldEqual` [ 0 ]
+              efValue `shouldEqual` [ 0 ]
+            describe "Hyrule" do
+              it "fromStEvent+toEvent" $ liftEffect do
+                efRef <- Ref.new []
+                let
+                  stEvent :: STEvent Int
+                  stEvent = pure 0
+
+                  zrEvent :: ZoraEvent Int
+                  zrEvent = fromStEvent stEvent
+                _ <- subscribe (toEvent zrEvent) \k ->
+                  Ref.modify_ (Array.cons k) efRef
+                efValue <- Ref.read efRef
+                efValue `shouldEqual` [ 0 ]
+              it "fromEvent+toEvent" $ liftEffect do
+                efRef <- Ref.new []
+                let
+                  efEvent :: Event Int
+                  efEvent = pure 0
+
+                  zrEvent :: ZoraEvent Int
+                  zrEvent = fromEvent efEvent
+                _ <- subscribe (toEvent zrEvent) \k ->
+                  Ref.modify_ (Array.cons k) efRef
+                efValue <- Ref.read efRef
+                efValue `shouldEqual` [ 0 ]
+              it "fromStEvent+toStEvent" $ liftEffect do
+                stRef <- toEffect $ STRef.new []
+                let
+                  stEvent :: STEvent Int
+                  stEvent = pure 0
+
+                  zrEvent :: ZoraEvent Int
+                  zrEvent = fromStEvent stEvent
+                _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
+                  void $ STRef.modify (Array.cons k) stRef
+                stValue <- toEffect $ STRef.read stRef
+                stValue `shouldEqual` [ 0 ]
+              it "fromEvent+toStEvent" $ liftEffect do
+                stRef <- toEffect $ STRef.new []
+                let
+                  efEvent :: Event Int
+                  efEvent = pure 0
+
+                  zrEvent :: ZoraEvent Int
+                  zrEvent = fromEvent efEvent
+                _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
+                  void $ STRef.modify (Array.cons k) stRef
+                stValue <- toEffect $ STRef.read stRef
+                stValue `shouldEqual` []
