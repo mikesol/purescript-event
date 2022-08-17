@@ -6,7 +6,6 @@ module FRP.Event
   , backdoor
   , Backdoor(..)
   , create
-  , createHelper
   , CreateT
   , Create(..)
   , makeEvent
@@ -312,12 +311,6 @@ create :: CreateT
 create = do
   pure unit
   (\(Create nt) -> nt) backdoor.create
-
-createHelper :: forall m1 m2 s a
-   . MonadST s m1
-  => MonadST s m2
-  => Proxy s -> Proxy m1 -> Proxy m2 -> m1 (AnEventIO m2 a)
-createHelper _ _ _ = create
 
 type CreateT =
   forall m1 m2 s a

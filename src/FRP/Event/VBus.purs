@@ -5,7 +5,7 @@ import Prelude
 import Control.Monad.ST.Class (class MonadST)
 import Data.Symbol (class IsSymbol)
 import Data.Tuple.Nested (type (/\), (/\))
-import FRP.Event (AnEvent, createHelper, makeEvent)
+import FRP.Event (AnEvent, create, makeEvent)
 import Prim.Row as R
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
@@ -49,7 +49,7 @@ else instance vbusCons2 ::
   VBus (RL.Cons key z rest) p e m where
   vb _ s m = do
     p /\ e <- vb (Proxy :: _ rest) s m
-    { event, push } <- createHelper s m m
+    { event, push } <- create
     pure (Record.insert (Proxy :: _ key) (push :: z -> m Unit) p /\ Record.insert (Proxy :: _ key) event e)
 
 
