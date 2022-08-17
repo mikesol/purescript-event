@@ -390,6 +390,50 @@ makeSuite unlift name = do
           eio.push unit
         res <- toEffect $ STRef.read n
         shouldEqual res 3
+    describe "VBus" do
+      it "works with simple pushing" $ liftEffect do
+        r <- toEffect $ STRef.new []
+        u <- unlift $ Event.subscribe
+          ( keepLatest $ vbus (Proxy :: _ Test)
+              ( \p e -> e.d <|> Event.makeEvent \k -> do
+                  k [ 1, 2 ]
+                  p.d [ 34 ]
+                  pure (pure unit)
+              )
+          )
+          \i -> liftST $ void $ STRef.modify (append i) r
+        unlift u
+        toEffect (STRef.read r) >>= shouldEqual [ 34, 1, 2 ]
+      it "works with more complex pushing 1" $ liftEffect do
+        r <- toEffect $ STRef.new ""
+        u <- unlift $ Event.subscribe
+          ( keepLatest $ vbus (Proxy :: _ Test)
+              ( \p e -> map show e.d <|> map show e.c.a <|> map show e.c.q.r <|> Event.makeEvent \_ -> do
+                  p.d [ 1 ]
+                  p.c.a 55
+                  p.c.q.r false
+                  p.b unit
+                  pure (pure unit)
+              )
+          )
+          \i -> liftST $ void $ STRef.modify (append i) r
+        unlift u
+        toEffect (STRef.read r) >>= shouldEqual "false55[1]"
+      it "works with more complex pushing 2" $ liftEffect do
+        r <- toEffect $ STRef.new ""
+        u <- unlift $ Event.subscribe
+          ( keepLatest $ vbus (Proxy :: _ Test)
+              ( \p e -> map show e.d <|> map show e.c.a <|> map show e.b <|> Event.makeEvent \_ -> do
+                  p.d [ 1 ]
+                  p.c.a 55
+                  p.c.q.r false
+                  p.b unit
+                  pure (pure unit)
+              )
+          )
+          \i -> liftST $ void $ STRef.modify (append i) r
+        unlift u
+        toEffect (STRef.read r) >>= shouldEqual "unit55[1]"
 
 main :: Effect Unit
 main = do
@@ -415,50 +459,6 @@ main = do
             r' <- liftEffect $ Ref.read r
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
-        describe "VBus" do
-          it "works with simple pushing" $ liftEffect do
-            r <- Ref.new []
-            u <- Event.subscribe
-              ( keepLatest $ vbus (Proxy :: _ Test)
-                  ( \p e -> e.d <|> Event.makeEvent \k -> do
-                      k [ 1, 2 ]
-                      p.d [ 34 ]
-                      pure (pure unit)
-                  )
-              )
-              \i -> Ref.modify_ (append i) r
-            u
-            Ref.read r >>= shouldEqual [ 34, 1, 2 ]
-          it "works with more complex pushing 1" $ liftEffect do
-            r <- Ref.new ""
-            u <- Event.subscribe
-              ( keepLatest $ vbus (Proxy :: _ Test)
-                  ( \p e -> map show e.d <|> map show e.c.a <|> map show e.c.q.r <|> Event.makeEvent \_ -> do
-                      p.d [ 1 ]
-                      p.c.a 55
-                      p.c.q.r false
-                      p.b unit
-                      pure (pure unit)
-                  )
-              )
-              \i -> Ref.modify_ (append i) r
-            u
-            Ref.read r >>= shouldEqual "false55[1]"
-          it "works with more complex pushing 2" $ liftEffect do
-            r <- Ref.new ""
-            u <- Event.subscribe
-              ( keepLatest $ vbus (Proxy :: _ Test)
-                  ( \p e -> map show e.d <|> map show e.c.a <|> map show e.b <|> Event.makeEvent \_ -> do
-                      p.d [ 1 ]
-                      p.c.a 55
-                      p.c.q.r false
-                      p.b unit
-                      pure (pure unit)
-                  )
-              )
-              \i -> Ref.modify_ (append i) r
-            u
-            Ref.read r >>= shouldEqual "unit55[1]"
         describe "Fix" do
           it "should work" do
             { event, push } <- liftEffect Event.create
