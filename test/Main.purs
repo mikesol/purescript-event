@@ -5,15 +5,14 @@ import Prelude
 import Control.Alt ((<|>))
 import Control.Monad.ST.Class (class MonadST, liftST)
 import Control.Monad.ST.Global (Global, toEffect)
-import Control.Monad.ST.Internal (ST, STRef, run)
+import Control.Monad.ST.Internal (ST, STRef)
 import Control.Monad.ST.Internal as RRef
 import Control.Monad.ST.Ref as STRef
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
 import Data.Array (cons, snoc, replicate)
 import Data.Array as Array
 import Data.Filterable (filter)
+import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, oneOf, sequence)
@@ -216,81 +215,56 @@ makeSuite unlift name = do
         liftST $ void $ STRef.modify (flip snoc i) r
       toEffect (STRef.read r) >>= shouldEqual x
       unlift u
+    describe "Performance" do
+      it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
+        starts <- getTime <$> now
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        us <- unlift $ sequence $ replicate 10 $ subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i ->
+          liftST $ void $ STRef.modify (Array.cons i) r
+        unlift $ for_ (replicate 1000 3) push
+        unlift $ sequence_ us
+        ends <- getTime <$> now
+        write ("Duration: " <> show (ends - starts) <> "\n")
+      it "handles 1000 subscriptions with a simple event and 10 pushes" $ liftEffect do
+        starts <- getTime <$> now
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        us <- unlift $ sequence $ replicate 1000 $ subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i ->
+          liftST $ void $ STRef.modify (Array.cons i) r
+        unlift $ for_ (replicate 10 3) push
+        unlift $ sequence_ us
+        ends <- getTime <$> now
+        write ("Duration: " <> show (ends - starts) <> "\n")
+      it "handles 1 subscription with a 10-nested event + 100 alts and 100 pushes" $ liftEffect do
+        starts <- getTime <$> now
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        let e = context event (\i -> oneOf $ replicate 100 $ foldr ($) i (replicate 10 (map (add 1))))
+        u <- unlift $ subscribe e \i -> liftST $ void $ STRef.modify (Array.cons i) r
+        unlift $ for_ (replicate 100 3) push
+        unlift $ u
+        ends <- getTime <$> now
+        write ("Duration: " <> show (ends - starts) <> "\n")
+      it "handles 1 subscription with a 10-nested event + array of 100 and 100 pushes" $ liftEffect do
+        starts <- getTime <$> now
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        let event' = context event (\i -> map (replicate 100) $ foldr ($) i (replicate 10 (map (add 1))))
+        u <- unlift $ subscribe event' \i ->
+          liftST $ void $ STRef.modify (Array.cons i) r
+        unlift $ for_ (replicate 100 3) push
+        unlift $ u
+        ends <- getTime <$> now
+        write ("Duration: " <> show (ends - starts) <> "\n")
 
 main :: Effect Unit
 main = do
   launchAff_
     $ runSpec [ consoleReporter ] do
-        describe "Testing" do
-          makeSuite identity "Event"
-          makeSuite toEffect "STEvent"
-          makeSuite runImpure "ZoraEvent"
-        let
-          performanceSuite
-            :: forall event
-             . IsEvent event
-            => String
-            -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
-            -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
-            -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
-            -> Spec Unit
-          performanceSuite name context create subscribe =
-            describe ("Performance testing " <> name) do
-              it "handles 10 subscriptions with a simple event and 1000 pushes" do
-                liftEffect do
-                  starts <- getTime <$> now
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  unsubs <- sequence $ replicate 10 (subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i -> Ref.modify_ (cons i) rf)
-                  for_ (replicate 1000 3) \i -> push i
-                  for_ unsubs \unsub -> unsub
-                  ends <- getTime <$> now
-                  write ("Duration: " <> show (ends - starts) <> "\n")
-              it "handles 1000 subscriptions with a simple event and 10 pushes" do
-                liftEffect do
-                  starts <- getTime <$> now
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  unsubs <- sequence $ replicate 1000 (subscribe (context event (\i -> map (add 1) $ map (add 1) i)) \i -> Ref.modify_ (cons i) rf)
-                  for_ (replicate 10 3) \i -> push i
-                  for_ unsubs \unsub -> unsub
-                  ends <- getTime <$> now
-                  write ("Duration: " <> show (ends - starts) <> "\n")
-              it "handles 10 subscriptions with a 100-nested event and 100 pushes" do
-                liftEffect do
-                  starts <- getTime <$> now
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  let e = context event (\i -> foldr ($) i (replicate 100 (map (add 1))))
-                  unsubs <- sequence $ replicate 10 (subscribe e \i -> Ref.modify_ (cons i) rf)
-                  for_ (replicate 100 3) \i -> push i
-                  for_ unsubs \unsub -> unsub
-                  ends <- getTime <$> now
-                  write ("Duration: " <> show (ends - starts))
-              it "handles 1 subscription with a 10-nested event + 100 alts and 100 pushes" do
-                liftEffect do
-                  starts <- getTime <$> now
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  let e = context event (\i -> oneOf $ replicate 100 $ foldr ($) i (replicate 10 (map (add 1))))
-                  unsub <- subscribe e \i -> Ref.modify_ (cons i) rf
-                  for_ (replicate 100 3) \i -> push i
-                  unsub
-                  ends <- getTime <$> now
-                  write ("Duration: " <> show (ends - starts) <> "\n")
-              it "handles 1 subscription with a 10-nested event + array of 100 and 100 pushes" do
-                liftEffect do
-                  starts <- getTime <$> now
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  let e = context event (\i -> map (replicate 100) $ foldr ($) i (replicate 10 (map (add 1))))
-                  unsub <- subscribe e \i -> Ref.modify_ (cons i) rf
-                  for_ (replicate 100 3) \i -> push i
-                  unsub
-                  ends <- getTime <$> now
-                  write ("Duration: " <> show (ends - starts) <> "\n")
-        performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
-        -- performanceSuite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
+        makeSuite identity "Event"
+        makeSuite toEffect "STEvent"
+        makeSuite runImpure "ZoraEvent"
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -459,158 +433,6 @@ main = do
               o <- Ref.read rf
               o `shouldEqual` [ 5, 1 ]
               unsub
-        --------
-        -- for st, we can't use the suite, as it leask a variable
-        -- for now, copied and pasted below
-        describe ("Testing ST") do
-          it "should do simple stuff" do
-            run
-              ( execWriterT do
-                  rf <- lift (fresh [])
-                  unsub <- lift (Event.subscribe (pure 0) \i -> modify__ (cons i) rf)
-                  o <- lift (RRef.read rf)
-                  tell (o `shouldEqual` [ 0 ])
-                  lift unsub
-              )
-          it "should do complex stuff" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  { push, event } <- lift $ Event.create
-                  unsub1 <- lift $ Event.subscribe (event) \i -> modify__ (cons i) rf
-                  lift $ push 0
-                  o <- lift $ RRef.read rf
-                  tell (o `shouldEqual` [ 0 ])
-                  unsub2 <- lift $ Event.subscribe (event) \i -> modify__ (cons (negate i)) rf
-                  o' <- lift $ RRef.read rf
-                  tell (o' `shouldEqual` [ 0 ])
-                  lift $ push 1
-                  o'' <- lift $ RRef.read rf
-                  tell (o'' `shouldEqual` [ -1, 1, 0 ])
-                  lift $ unsub1 *> unsub2
-              )
-          it "should do a lot more complex addition" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  let
-                    x = (pure 0) # \i ->
-                      let
-                        add1 = map (add 1) i
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                      in
-                        add1 <|> add4
-                  unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
-                  o <- lift $ RRef.read rf
-                  tell (o `shouldEqual` [ 10, 1 ])
-                  lift $ unsub
-              )
-          it "should handle alt" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  let
-                    x = (pure 0) # \i ->
-                      let
-                        add1 = (map (add 1) i)
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                      in
-                        add1 <|> altr
-                  unsub <- lift $ Event.subscribe x \i -> modify__ (cons i) rf
-                  o <- lift $ RRef.read rf
-                  tell (o `shouldEqual` [ 10, 3, 1, 1 ])
-                  lift $ unsub
-              )
-          it "should handle filter 1" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  let
-                    x = (pure 0) # \i ->
-                      let
-                        add1 = map (add 1) i
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                        fm = (filter (_ < 5) altr)
-                      in
-                        add1 <|> fm
-                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-                  o <- lift $ RRef.read rf
-                  tell (o `shouldEqual` [ 3, 1, 1 ])
-                  lift $ unsub
-              )
-          it "should handle filter 2" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  let add1 = (map (add 1) (pure 0))
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let add4 = map (add 4) add3
-                  let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                  let fm = (filter (_ > 5) altr)
-                  unsub <- lift $ Event.subscribe (add1 <|> fm) (\i -> modify__ (cons i) rf)
-                  o <- lift $ RRef.read rf
-                  tell (o `shouldEqual` [ 10, 1 ])
-                  lift $ unsub
-              )
-          it "should handle fold 0" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  { push, event } <- lift $ Event.create
-                  let
-                    x = event # \i -> do
-                      let foldy = (fold (\_ b -> b + 1) i 0)
-                      let add2 = map (add 2) foldy
-                      let add3 = map (add 3) add2
-                      let add4 = map (add 4) add3
-                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      let fm = (filter (_ > 5) altr)
-                      foldy <|> fm
-                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-                  lift $ push unit
-                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 10, 1 ])
-                  void $ lift $ RRef.write [] rf
-                  lift $ push unit
-                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 11, 2 ])
-                  lift $ void $ RRef.write [] rf
-                  lift $ push unit
-                  (lift $ RRef.read rf) >>= (tell <<< shouldEqual [ 12, 3 ])
-                  lift $ unsub
-              )
-          it "should handle fold 1" do
-            run
-              ( execWriterT do
-                  rf <- lift $ fresh []
-                  { push, event } <- lift $ Event.create
-                  let
-                    x = event # \i -> do
-                      let add1 = map (add 1) i
-                      let add2 = map (add 2) add1
-                      let add3 = map (add 3) add2
-                      let foldy = fold (\a b -> a + b) add3 0
-                      let add4 = map (add 4) add3
-                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
-                  unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
-                  lift $ push 0
-                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 6 ]
-                  lift $ void $ RRef.write [] rf
-                  lift $ push 0
-                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 12 ]
-                  lift $ void $ RRef.write [] rf
-                  lift $ push 0
-                  (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 18 ]
-                  lift $ unsub
-              )
         describe "Mailboxed" do
           it "mailboxes" $ liftEffect do
             rf <- Ref.new []
