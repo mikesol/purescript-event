@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), STEvent, ZoraEvent, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
+import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), STEvent, ZoraEvent, Event, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
@@ -701,6 +701,18 @@ main = do
                       Ref.modify_ (Array.cons k) efRef
               efValue <- Ref.read efRef
               efValue `shouldEqual` [0]
+            it "fromEvent+toEvent" $ liftEffect do
+              efRef <- Ref.new []
+              let
+                efEvent :: Event Int
+                efEvent = pure 0
+
+                zrEvent :: ZoraEvent Int
+                zrEvent = fromEvent efEvent
+              _ <- subscribe (toEvent zrEvent) \k ->
+                      Ref.modify_ (Array.cons k) efRef
+              efValue <- Ref.read efRef
+              efValue `shouldEqual` [0]
             it "fromStEvent+toStEvent" $ liftEffect do
               stRef <- toEffect $ STRef.new []
               let
@@ -713,3 +725,15 @@ main = do
                       void $ STRef.modify (Array.cons k) stRef
               stValue <- toEffect $ STRef.read stRef
               stValue `shouldEqual` [0]
+            it "fromEvent+toStEvent" $ liftEffect do
+              stRef <- toEffect $ STRef.new []
+              let
+                efEvent :: Event Int
+                efEvent = pure 0
+
+                zrEvent :: ZoraEvent Int
+                zrEvent = fromEvent efEvent
+              _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
+                      void $ STRef.modify (Array.cons k) stRef
+              stValue <- toEffect $ STRef.read stRef
+              stValue `shouldEqual` []
