@@ -271,8 +271,8 @@ makeSuite unlift name = do
         u2 <- unlift $ Event.subscribe mapped (pure (pure unit))
         unlift $ push 0
         Ref.read count >>= shouldEqual 2
-        unlift $ u1
-        unlift $ u2
+        unlift u1
+        unlift u2
       it "should memoize" $ liftEffect do
         { push, event } <- unlift Event.create
         count <- Ref.new 0
@@ -308,7 +308,40 @@ makeSuite unlift name = do
         u <- unlift $ Event.subscribe mapped (\_ -> pure unit)
         unlift $ push 0
         Ref.read count >>= shouldEqual 2
-        unlift $ u
+        unlift u
+    describe "Apply" do
+      it "respects both sides of application" $ liftEffect do
+        { event, push } <- unlift Event.create
+        rf0 <- toEffect $ STRef.new ""
+        rf1 <- toEffect $ STRef.new ""
+        void $ unlift $ Event.subscribe ((append <$> pure "a") <*> event) (liftST <<< void <<< flip STRef.write rf0)
+        void $ unlift $ Event.subscribe ((append <$> event) <*> pure "b") (liftST <<< void <<< flip STRef.write rf1)
+        unlift $ push "c"
+        rf0' <- toEffect $ STRef.read rf0
+        rf1' <- toEffect $ STRef.read rf1
+        rf0' `shouldEqual` "ac"
+        rf1' `shouldEqual` "cb"
+      it "always applies updates from left to right, emitting at each update" $ liftEffect do
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        u <- unlift $ Event.subscribe (let x = event in (map add x) <*> x) \i ->
+               liftST $ void $ STRef.modify (flip snoc i) r
+        unlift $ push 1
+        unlift $ push 2
+        o <- toEffect $ STRef.read r
+        o `shouldEqual` [ 2, 3, 4 ]
+        unlift u
+      it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        let addSixNums x y z a b c = x + y + z + a + b + c
+        u <- unlift $ Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i ->
+               liftST $ void $ STRef.modify (flip snoc i) r
+        unlift $ push 1
+        unlift $ push 2
+        o <- toEffect $ STRef.read r
+        o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
+        unlift u
 
 main :: Effect Unit
 main = do
@@ -334,37 +367,6 @@ main = do
             r' <- liftEffect $ Ref.read r
             x' `shouldSatisfy` (_ > 10)
             r' `shouldEqual` 1
-        describe "Apply" do
-          it "respects both sides of application" $ liftEffect do
-            { event, push } <- Event.create
-            rf0 <- Ref.new ""
-            rf1 <- Ref.new ""
-            void $ Event.subscribe ((append <$> pure "a") <*> event) (flip Ref.write rf0)
-            void $ Event.subscribe ((append <$> event) <*> pure "b") (flip Ref.write rf1)
-            push "c"
-            rf0' <- Ref.read rf0
-            rf1' <- Ref.read rf1
-            rf0' `shouldEqual` "ac"
-            rf1' `shouldEqual` "cb"
-          it "always applies updates from left to right, emitting at each update" $ liftEffect do
-            rf <- Ref.new []
-            { push, event } <- Event.create
-            unsub <- Event.subscribe (let x = event in (map add x) <*> x) \i -> Ref.modify_ (flip snoc i) rf
-            push 1
-            push 2
-            o <- Ref.read rf
-            o `shouldEqual` [ 2, 3, 4 ]
-            unsub
-          it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
-            rf <- Ref.new []
-            { push, event } <- Event.create
-            let addSixNums x y z a b c = x + y + z + a + b + c
-            unsub <- Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i -> Ref.modify_ (flip snoc i) rf
-            push 1
-            push 2
-            o <- Ref.read rf
-            o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
-            unsub
         describe "VBus" do
           it "works with simple pushing" $ liftEffect do
             r <- Ref.new []
