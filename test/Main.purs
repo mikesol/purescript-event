@@ -69,7 +69,7 @@ makeSuite unlift name = do
   let
     context :: (forall i o. AnEvent monad i -> (forall event'. IsEvent event' => event' i -> event' o) -> AnEvent monad o)
     context = \i f -> f i
-  describe ("Testing " <> name) do
+  describe name do
     it "should do simple stuff" $ liftEffect do
       r <- toEffect $ STRef.new []
       unsubscribe <- unlift $ subscribe (context (pure 0) identity) \i ->
@@ -221,9 +221,10 @@ main :: Effect Unit
 main = do
   launchAff_
     $ runSpec [ consoleReporter ] do
-        makeSuite identity "Event"
-        makeSuite toEffect "STEvent"
-        makeSuite runImpure "ZoraEvent"
+        describe "Testing" do
+          makeSuite identity "Event"
+          makeSuite toEffect "STEvent"
+          makeSuite runImpure "ZoraEvent"
         let
           performanceSuite
             :: forall event
