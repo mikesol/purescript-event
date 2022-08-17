@@ -23,7 +23,7 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (Behavior, behavior, gate)
+import FRP.Behavior (ABehavior, Behavior, behavior, gate)
 import FRP.Event (AnEvent, Backdoor, Event, EventIO, MakeEvent(..), STEvent, ZoraEvent, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
@@ -43,6 +43,10 @@ foreign import unsafeBackdoor :: MakeEvent -> Backdoor -> Effect MakeEvent
 refToBehavior :: Ref.Ref ~> Behavior
 refToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f -> Ref.read r >>=
   (k <<< f)
+
+stRefToBehavior :: forall monad. MonadST Global monad => STRef Global ~> ABehavior (AnEvent monad)
+stRefToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f ->
+  liftST (STRef.read r) >>= (k <<< f)
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ RRef.modify a b
@@ -342,6 +346,50 @@ makeSuite unlift name = do
         o <- toEffect $ STRef.read r
         o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
         unlift u
+    describe "Mailboxed" do
+      it "should work" $ liftEffect do
+        r <- toEffect $ STRef.new []
+        e <- unlift Event.create
+        u <- unlift $ Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i ->
+               liftST $ void $ STRef.modify (Array.cons i) r
+        unlift do
+          e.push { address: 42, payload: true }
+          e.push { address: 43, payload: true }
+          e.push { address: 44, payload: true }
+          e.push { address: 3, payload: true } --
+          e.push { address: 42, payload: false }
+          e.push { address: 43, payload: true }
+          e.push { address: 43, payload: false }
+          e.push { address: 4, payload: false } --
+          e.push { address: 42, payload: false }
+          e.push { address: 43, payload: true }
+          e.push { address: 3, payload: false } --
+          e.push { address: 101, payload: true }
+        o <- toEffect $ STRef.read r
+        o `shouldEqual` [ false, false, true ]
+        unlift u
+    describe "Gate" do
+      it "should work" $ liftEffect do
+        eio <- unlift Event.create
+        r <- toEffect $ STRef.new false
+        n <- toEffect $ STRef.new 0
+        let b = stRefToBehavior r
+        _ <- unlift $ Event.subscribe (gate b eio.event) \_ ->
+               liftST $ void $ STRef.modify (add 1) n
+        unlift do
+          eio.push unit
+          eio.push unit
+        toEffect $ void $ STRef.write true r
+        unlift do
+          eio.push unit
+          eio.push unit
+          eio.push unit
+        toEffect $ void $ STRef.write false r
+        unlift do
+          eio.push unit
+          eio.push unit
+        res <- toEffect $ STRef.read n
+        shouldEqual res 3
 
 main :: Effect Unit
 main = do
@@ -351,7 +399,7 @@ main = do
         makeSuite toEffect "STEvent"
         makeSuite runImpure "ZoraEvent"
         describe "Hot" do
-          it "is hot" do
+          it "should work" do
             r <- liftEffect $ Ref.new 0
             x <- liftEffect $ Ref.new 0
             let
@@ -428,46 +476,8 @@ main = do
               o <- Ref.read rf
               o `shouldEqual` [ 5, 1 ]
               unsub
-        describe "Mailboxed" do
-          it "mailboxes" $ liftEffect do
-            rf <- Ref.new []
-            e <- Event.create
-            unsub <- Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i -> Ref.modify_ (cons i) rf
-            e.push { address: 42, payload: true }
-            e.push { address: 43, payload: true }
-            e.push { address: 44, payload: true }
-            e.push { address: 3, payload: true } --
-            e.push { address: 42, payload: false }
-            e.push { address: 43, payload: true }
-            e.push { address: 43, payload: false }
-            e.push { address: 4, payload: false } --
-            e.push { address: 42, payload: false }
-            e.push { address: 43, payload: true }
-            e.push { address: 3, payload: false } --
-            e.push { address: 101, payload: true }
-            o <- Ref.read rf
-            o `shouldEqual` [ false, false, true ]
-            unsub
-        describe "Gate" do
-          it "gates" $ liftEffect do
-            eio <- Event.create
-            rf <- Ref.new false
-            n <- Ref.new 0
-            let b = refToBehavior rf
-            _ <- Event.subscribe (gate b eio.event) \_ -> Ref.modify_ (add 1) n
-            eio.push unit
-            eio.push unit
-            Ref.write true rf
-            eio.push unit
-            eio.push unit
-            eio.push unit
-            Ref.write false rf
-            eio.push unit
-            eio.push unit
-            res <- Ref.read n
-            shouldEqual res 3
         describe "Backdoor" do
-          it "works" $ liftEffect do
+          it "should work" $ liftEffect do
             hack :: EventIO Int <- Event.create
             rf <- Ref.new []
             old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
