@@ -3,7 +3,8 @@ module Test.Main where
 import Prelude
 
 import Control.Alt ((<|>))
-import Control.Monad.ST.Global (toEffect)
+import Control.Monad.ST.Class (class MonadST, liftST)
+import Control.Monad.ST.Global (Global, toEffect)
 import Control.Monad.ST.Internal (ST, STRef, run)
 import Control.Monad.ST.Internal as RRef
 import Control.Monad.ST.Ref as STRef
@@ -24,12 +25,12 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), STEvent, ZoraEvent, Event, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
+import FRP.Event (AnEvent, Backdoor, Event, EventIO, MakeEvent(..), STEvent, ZoraEvent, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
-import Hyrule.Zora (Zora, liftImpure, liftPure, runImpure, runPure)
+import Hyrule.Zora (liftImpure, liftPure, runImpure, runPure)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Console (write)
@@ -58,174 +59,171 @@ type Test =
     , d :: Array Int
     )
 
+makeSuite
+  :: forall monad
+   . MonadST Global monad
+  => (monad ~> Effect)
+  -> String
+  -> Spec Unit
+makeSuite unlift name = do
+  let
+    context :: (forall i o. AnEvent monad i -> (forall event'. IsEvent event' => event' i -> event' o) -> AnEvent monad o)
+    context = \i f -> f i
+  describe ("Testing " <> name) do
+    it "should do simple stuff" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      unsubscribe <- unlift $ subscribe (context (pure 0) identity) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      v <- toEffect $ STRef.read r
+      unlift unsubscribe
+      v `shouldEqual` [ 0 ]
+    it "should do complex stuff" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      { push, event } <- unlift Event.create
+      u1 <- unlift $ subscribe (context event identity) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      unlift $ push 0
+      v <- toEffect $ STRef.read r
+      v `shouldEqual` [ 0 ]
+      u2 <- unlift $ subscribe (context event identity) \i ->
+        liftST $ void $ STRef.modify (Array.cons (negate i)) r
+      v' <- toEffect $ STRef.read r
+      v' `shouldEqual` [ 0 ]
+      unlift $ push 1
+      v'' <- toEffect $ STRef.read r
+      v'' `shouldEqual` [ -1, 1, 0 ]
+      unlift $ u1 *> u2
+    it "should do a lot more complex addition" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      let
+        event = context (pure 0) \i ->
+          let
+            add1 = map (add 1) i
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+          in
+            add1 <|> add4
+      u <- unlift $ subscribe event \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      v <- toEffect $ STRef.read r
+      v `shouldEqual` [ 10, 1 ]
+      unlift u
+    it "should handle alt" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      let
+        event = context (pure 0) \i ->
+          let
+            add1 = (map (add 1) i)
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+            altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+          in
+            add1 <|> altr
+      u <- unlift $ subscribe event \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      v <- toEffect $ STRef.read r
+      v `shouldEqual` [ 10, 3, 1, 1 ]
+      unlift u
+    it "should handle filter 1" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      let
+        event = context (pure 0) \i ->
+          let
+            add1 = map (add 1) i
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+            altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+            fm = (filter (_ < 5) altr)
+          in
+            add1 <|> fm
+      u <- unlift $ subscribe event \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      v <- toEffect $ STRef.read r
+      v `shouldEqual` [ 3, 1, 1 ]
+      unlift u
+    it "should handle filter 2" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      let add1 = (map (add 1) (pure 0))
+      let add2 = map (add 2) add1
+      let add3 = map (add 3) add2
+      let add4 = map (add 4) add3
+      let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+      let fm = (filter (_ > 5) altr)
+      u <- unlift $ subscribe (add1 <|> fm) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      v <- toEffect $ STRef.read r
+      v `shouldEqual` [ 10, 1 ]
+      unlift u
+    it "should handle fold 0" $ liftEffect do
+      r <- toEffect $ STRef.new []
+      { push, event } <- unlift Event.create
+      let
+        event' = context event \i -> do
+          let foldy = (fold (\_ b -> b + 1) i 0)
+          let add2 = map (add 2) foldy
+          let add3 = map (add 3) add2
+          let add4 = map (add 4) add3
+          let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+          let fm = (filter (_ > 5) altr)
+          foldy <|> fm
+      u <- unlift $ subscribe event' \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      unlift $ push unit
+      toEffect (STRef.read r) >>= shouldEqual [ 10, 1 ]
+      toEffect $ void $ STRef.write [] r
+      unlift $ push unit
+      toEffect (STRef.read r) >>= shouldEqual [ 11, 2 ]
+      toEffect $ void $ STRef.write [] r
+      unlift $ push unit
+      toEffect (STRef.read r) >>= shouldEqual [ 12, 3 ]
+      unlift u
+    it "should handle fold 1" do
+      liftEffect do
+        r <- toEffect $ STRef.new []
+        { push, event } <- unlift Event.create
+        let
+          event' = context event \i -> do
+            let add1 = map (add 1) i
+            let add2 = map (add 2) add1
+            let add3 = map (add 3) add2
+            let foldy = fold (\a b -> a + b) add3 0
+            let add4 = map (add 4) add3
+            let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+            sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+        u <- unlift $ subscribe event' \i ->
+          liftST $ void $ STRef.modify (Array.cons i) r
+        unlift $ push 0
+        toEffect (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
+        toEffect $ void $ STRef.write [] r
+        unlift $ push 0
+        toEffect (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 12 ]
+        toEffect $ void $ STRef.write [] r
+        unlift $ push 0
+        toEffect (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
+        unlift u
+    it "should match Applicative Array instance" $ liftEffect do
+      let
+        x :: Array (Tuple Int Int)
+        x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+
+        e :: AnEvent monad (Tuple Int Int)
+        e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+      r <- toEffect $ STRef.new []
+      u <- unlift $ subscribe e \i ->
+        liftST $ void $ STRef.modify (flip snoc i) r
+      toEffect (STRef.read r) >>= shouldEqual x
+      unlift u
+
 main :: Effect Unit
 main = do
   launchAff_
     $ runSpec [ consoleReporter ] do
-        let
-          suite
-            :: forall event
-             . IsEvent event
-            => Applicative event
-            => String
-            -> (forall i o. event i -> (forall event'. IsEvent event' => event' i -> event' o) -> event o)
-            -> (forall a. Effect { push :: a -> Effect Unit, event :: event a })
-            -> (forall a. event a -> (a -> Effect Unit) -> Effect (Effect Unit))
-            -> Spec Unit
-          suite name context create subscribe =
-            describe ("Testing " <> name) do
-              it "should do simple stuff" do
-                liftEffect do
-                  rf <- Ref.new []
-                  unsub <- subscribe (context (pure 0) identity) \i -> Ref.modify_ (cons i) rf
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 0 ]
-                  unsub
-              it "should do complex stuff" do
-                liftEffect do
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  unsub1 <- subscribe (context event identity) \i -> Ref.modify_ (cons i) rf
-                  push 0
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 0 ]
-                  unsub2 <- subscribe (context event identity) \i -> Ref.modify_ (cons (negate i)) rf
-                  o' <- Ref.read rf
-                  o' `shouldEqual` [ 0 ]
-                  push 1
-                  o'' <- Ref.read rf
-                  o'' `shouldEqual` [ -1, 1, 0 ]
-                  unsub1 *> unsub2
-              it "should do a lot more complex addition" do
-                liftEffect do
-                  rf <- Ref.new []
-                  let
-                    x = context (pure 0) \i ->
-                      let
-                        add1 = map (add 1) i
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                      in
-                        add1 <|> add4
-                  unsub <- subscribe x \i -> Ref.modify_ (cons i) rf
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 10, 1 ]
-                  unsub
-              it "should handle alt" do
-                liftEffect do
-                  rf <- Ref.new []
-                  let
-                    x = context (pure 0) \i ->
-                      let
-                        add1 = (map (add 1) i)
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                      in
-                        add1 <|> altr
-                  unsub <- subscribe x \i -> Ref.modify_ (cons i) rf
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 10, 3, 1, 1 ]
-                  unsub
-              it "should handle filter 1" do
-                liftEffect do
-                  rf <- Ref.new []
-                  let
-                    x = context (pure 0) \i ->
-                      let
-                        add1 = map (add 1) i
-                        add2 = map (add 2) add1
-                        add3 = map (add 3) add2
-                        add4 = map (add 4) add3
-                        altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                        fm = (filter (_ < 5) altr)
-                      in
-                        add1 <|> fm
-                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 3, 1, 1 ]
-                  unsub
-              it "should handle filter 2" do
-                liftEffect do
-                  rf <- Ref.new []
-                  let add1 = (map (add 1) (pure 0))
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let add4 = map (add 4) add3
-                  let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                  let fm = (filter (_ > 5) altr)
-                  unsub <- subscribe (add1 <|> fm) (\i -> Ref.modify_ (cons i) rf)
-                  o <- Ref.read rf
-                  o `shouldEqual` [ 10, 1 ]
-                  unsub
-              it "should handle fold 0" do
-                liftEffect do
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  let
-                    x = context event \i -> do
-                      let foldy = (fold (\_ b -> b + 1) i 0)
-                      let add2 = map (add 2) foldy
-                      let add3 = map (add 3) add2
-                      let add4 = map (add 4) add3
-                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      let fm = (filter (_ > 5) altr)
-                      foldy <|> fm
-                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
-                  push unit
-                  Ref.read rf >>= shouldEqual [ 10, 1 ]
-                  Ref.write [] rf
-                  push unit
-                  Ref.read rf >>= shouldEqual [ 11, 2 ]
-                  Ref.write [] rf
-                  push unit
-                  Ref.read rf >>= shouldEqual [ 12, 3 ]
-                  unsub
-              it "should handle fold 1" do
-                liftEffect do
-                  rf <- Ref.new []
-                  { push, event } <- create
-                  let
-                    x = context event \i -> do
-                      let add1 = map (add 1) i
-                      let add2 = map (add 2) add1
-                      let add3 = map (add 3) add2
-                      let foldy = fold (\a b -> a + b) add3 0
-                      let add4 = map (add 4) add3
-                      let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
-                  unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
-                  push 0
-                  Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
-                  Ref.write [] rf
-                  push 0
-                  Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 12 ]
-                  Ref.write [] rf
-                  push 0
-                  Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
-                  unsub
-              it "should match Applicative Array instance" do
-                liftEffect do
-                  let
-                    x :: Array (Tuple Int Int)
-                    x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
-
-                    e :: event (Tuple Int Int)
-                    e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
-                  rf <- Ref.new []
-                  unsub <- subscribe e (\i -> Ref.modify_ (flip snoc i) rf)
-                  Ref.read rf >>= shouldEqual x
-                  unsub
-        suite "Event" (\i f -> f i) Event.create Event.subscribe
-        let
-          zoraCreate :: forall a. Effect { event :: AnEvent Zora a , push :: a -> Effect Unit }
-          zoraCreate = Event.create <#> \r -> r { event = fromEvent r.event }
-
-          zoraSubscribe :: forall a. AnEvent Zora a -> (a -> Effect Unit) -> Effect (Effect Unit)
-          zoraSubscribe = Event.subscribe <<< toEvent
-        suite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
+        makeSuite identity "Event"
+        makeSuite toEffect "STEvent"
+        makeSuite runImpure "ZoraEvent"
         let
           performanceSuite
             :: forall event
@@ -291,7 +289,7 @@ main = do
                   ends <- getTime <$> now
                   write ("Duration: " <> show (ends - starts) <> "\n")
         performanceSuite "Event" (\i f -> f i) Event.create Event.subscribe
-        performanceSuite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
+        -- performanceSuite "ZoraEvent" (\i f -> f i) zoraCreate zoraSubscribe
         describe "Testing memoization" do
           it "should not memoize" do
             liftEffect do
@@ -370,7 +368,7 @@ main = do
             r' `shouldEqual` 1
         describe "Apply" do
           it "respects both sides of application" $ liftEffect do
-            {event, push} <- Event.create
+            { event, push } <- Event.create
             rf0 <- Ref.new ""
             rf1 <- Ref.new ""
             void $ Event.subscribe ((append <$> pure "a") <*> event) (flip Ref.write rf0)
@@ -674,7 +672,7 @@ main = do
                 void $ STRef.modify (Array.cons 0) stRef
             stValue <- toEffect $ STRef.read stRef
             efValue <- Ref.read efRef
-            stValue `shouldEqual` [0]
+            stValue `shouldEqual` [ 0 ]
             efValue `shouldEqual` []
           it "performs effect" $ liftEffect do
             stRef <- toEffect $ STRef.new []
@@ -686,8 +684,8 @@ main = do
                 void $ STRef.modify (Array.cons 0) stRef
             stValue <- toEffect $ STRef.read stRef
             efValue <- Ref.read efRef
-            stValue `shouldEqual` [0]
-            efValue `shouldEqual` [0]
+            stValue `shouldEqual` [ 0 ]
+            efValue `shouldEqual` [ 0 ]
           describe "Hyrule" do
             it "fromStEvent+toEvent" $ liftEffect do
               efRef <- Ref.new []
@@ -698,9 +696,9 @@ main = do
                 zrEvent :: ZoraEvent Int
                 zrEvent = fromStEvent stEvent
               _ <- subscribe (toEvent zrEvent) \k ->
-                      Ref.modify_ (Array.cons k) efRef
+                Ref.modify_ (Array.cons k) efRef
               efValue <- Ref.read efRef
-              efValue `shouldEqual` [0]
+              efValue `shouldEqual` [ 0 ]
             it "fromEvent+toEvent" $ liftEffect do
               efRef <- Ref.new []
               let
@@ -710,9 +708,9 @@ main = do
                 zrEvent :: ZoraEvent Int
                 zrEvent = fromEvent efEvent
               _ <- subscribe (toEvent zrEvent) \k ->
-                      Ref.modify_ (Array.cons k) efRef
+                Ref.modify_ (Array.cons k) efRef
               efValue <- Ref.read efRef
-              efValue `shouldEqual` [0]
+              efValue `shouldEqual` [ 0 ]
             it "fromStEvent+toStEvent" $ liftEffect do
               stRef <- toEffect $ STRef.new []
               let
@@ -722,9 +720,9 @@ main = do
                 zrEvent :: ZoraEvent Int
                 zrEvent = fromStEvent stEvent
               _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
-                      void $ STRef.modify (Array.cons k) stRef
+                void $ STRef.modify (Array.cons k) stRef
               stValue <- toEffect $ STRef.read stRef
-              stValue `shouldEqual` [0]
+              stValue `shouldEqual` [ 0 ]
             it "fromEvent+toStEvent" $ liftEffect do
               stRef <- toEffect $ STRef.new []
               let
@@ -734,6 +732,6 @@ main = do
                 zrEvent :: ZoraEvent Int
                 zrEvent = fromEvent efEvent
               _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
-                      void $ STRef.modify (Array.cons k) stRef
+                void $ STRef.modify (Array.cons k) stRef
               stValue <- toEffect $ STRef.read stRef
               stValue `shouldEqual` []
