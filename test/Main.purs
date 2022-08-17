@@ -409,7 +409,7 @@ main = do
               \i -> Ref.modify_ (append i) r
             u
             Ref.read r >>= shouldEqual "unit55[1]"
-        describe "fix" do
+        describe "Fix" do
           it "should work" do
             { event, push } <- liftEffect Event.create
             rf <- liftEffect $ Ref.new []
@@ -464,7 +464,7 @@ main = do
             eio.push unit
             res <- Ref.read n
             shouldEqual res 3
-        describe "backdoor" do
+        describe "Backdoor" do
           it "works" $ liftEffect do
             hack :: EventIO Int <- Event.create
             rf <- Ref.new []
