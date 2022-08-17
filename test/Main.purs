@@ -3,13 +3,13 @@ module Test.Main where
 import Prelude
 
 import Control.Alt ((<|>))
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Class (class MonadST, liftST)
 import Control.Monad.ST.Global (Global, toEffect)
-import Control.Monad.ST.Internal (ST, STRef)
-import Control.Monad.ST.Internal as RRef
 import Control.Monad.ST.Ref as STRef
 import Control.Plus (empty)
-import Data.Array (cons, snoc, replicate)
+import Data.Array (replicate)
 import Data.Array as Array
 import Data.Filterable (filter)
 import Data.Foldable (sequence_)
@@ -49,10 +49,10 @@ stRefToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f ->
   liftST (STRef.read r) >>= (k <<< f)
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
-modify__ a b = void $ RRef.modify a b
+modify__ a b = void $ STRef.modify a b
 
 fresh :: forall a r. a -> ST r (STRef r a)
-fresh = RRef.new
+fresh = STRef.new
 
 type Test =
   V
@@ -216,7 +216,7 @@ makeSuite unlift name = do
         e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
       r <- toEffect $ STRef.new []
       u <- unlift $ subscribe e \i ->
-        liftST $ void $ STRef.modify (flip snoc i) r
+        liftST $ void $ STRef.modify (flip Array.snoc i) r
       toEffect (STRef.read r) >>= shouldEqual x
       unlift u
     describe "Performance" do
@@ -329,7 +329,7 @@ makeSuite unlift name = do
         r <- toEffect $ STRef.new []
         { push, event } <- unlift Event.create
         u <- unlift $ Event.subscribe (let x = event in (map add x) <*> x) \i ->
-               liftST $ void $ STRef.modify (flip snoc i) r
+          liftST $ void $ STRef.modify (flip Array.snoc i) r
         unlift $ push 1
         unlift $ push 2
         o <- toEffect $ STRef.read r
@@ -340,7 +340,7 @@ makeSuite unlift name = do
         { push, event } <- unlift Event.create
         let addSixNums x y z a b c = x + y + z + a + b + c
         u <- unlift $ Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i ->
-               liftST $ void $ STRef.modify (flip snoc i) r
+          liftST $ void $ STRef.modify (flip Array.snoc i) r
         unlift $ push 1
         unlift $ push 2
         o <- toEffect $ STRef.read r
@@ -351,7 +351,7 @@ makeSuite unlift name = do
         r <- toEffect $ STRef.new []
         e <- unlift Event.create
         u <- unlift $ Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i ->
-               liftST $ void $ STRef.modify (Array.cons i) r
+          liftST $ void $ STRef.modify (Array.cons i) r
         unlift do
           e.push { address: 42, payload: true }
           e.push { address: 43, payload: true }
@@ -375,7 +375,7 @@ makeSuite unlift name = do
         n <- toEffect $ STRef.new 0
         let b = stRefToBehavior r
         _ <- unlift $ Event.subscribe (gate b eio.event) \_ ->
-               liftST $ void $ STRef.modify (add 1) n
+          liftST $ void $ STRef.modify (add 1) n
         unlift do
           eio.push unit
           eio.push unit
@@ -464,7 +464,7 @@ main = do
             it "should work" do
               { event, push } <- liftEffect Event.create
               rf <- liftEffect $ Ref.new []
-              unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (cons i) rf)
+              unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
               liftEffect do
                 push 1
                 push 2
@@ -483,7 +483,7 @@ main = do
               rf <- Ref.new []
               old <- unsafeBackdoor (MakeEvent \_ -> unsafeCoerce hack.event) backdoor
               let e0 = Event.makeEvent \k -> k 42 *> pure (pure unit)
-              _ <- Event.subscribe e0 \i -> Ref.modify_ (cons i) rf
+              _ <- Event.subscribe e0 \i -> Ref.modify_ (Array.cons i) rf
               hack.push 1
               hack.push 2
               hack.push 3
