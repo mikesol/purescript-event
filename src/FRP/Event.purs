@@ -18,8 +18,10 @@ module FRP.Event
   , MakeEventT
   , Memoize(..)
   , MemoizeT
+  , STEvent
   , Subscribe(..)
   , SubscribeT
+  , ZoraEvent
   , backdoor
   , burning
   , bus
@@ -83,6 +85,8 @@ newtype AnEvent m a = AnEvent ((a -> m Unit) -> m (m Unit))
 type Event a = AnEvent Effect a
 
 type STEvent a = AnEvent (ST Global) a
+
+type ZoraEvent = AnEvent Zora
 
 instance functorEvent :: Functor (AnEvent m) where
   map f (AnEvent e) = AnEvent \k -> e (k <<< f)
