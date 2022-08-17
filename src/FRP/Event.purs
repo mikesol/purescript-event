@@ -6,6 +6,7 @@ module FRP.Event
   , backdoor
   , Backdoor(..)
   , create
+  , createHelper
   , CreateT
   , Create(..)
   , makeEvent
@@ -39,7 +40,6 @@ module FRP.Event
 
 import Prelude
 
-import Data.Array as Array
 import Control.Alt ((<|>))
 import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
@@ -48,6 +48,7 @@ import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as Ref
 import Data.Array (deleteBy, length)
+import Data.Array as Array
 import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
@@ -67,6 +68,7 @@ import Effect (Effect)
 import Effect.Ref as ERef
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
+import Type.Proxy (Proxy)
 import Unsafe.Reference (unsafeRefEq)
 
 -- | An `Event` represents a collection of discrete occurrences with associated
@@ -310,6 +312,12 @@ create :: CreateT
 create = do
   pure unit
   (\(Create nt) -> nt) backdoor.create
+
+createHelper :: forall m1 m2 s a
+   . MonadST s m1
+  => MonadST s m2
+  => Proxy s -> Proxy m1 -> Proxy m2 -> m1 (AnEventIO m2 a)
+createHelper _ _ _ = create
 
 type CreateT =
   forall m1 m2 s a
