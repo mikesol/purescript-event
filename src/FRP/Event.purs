@@ -68,6 +68,7 @@ import Effect.Ref as ERef
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
 import Hyrule.Zora (Zora, liftImpure, liftPure, runImpure, runPure)
+import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
 
 -- | An `Event` represents a collection of discrete occurrences with associated
@@ -392,16 +393,16 @@ type DelayT = forall a. Int -> Event a -> Event a
 newtype Delay = Delay DelayT
 
 fromEvent :: Event ~> AnEvent Zora
-fromEvent (AnEvent e) = AnEvent $ dimap (map runImpure) (map liftImpure <<< liftImpure) e
+fromEvent (AnEvent e) = AnEvent $ dimap (map runImpure) (liftImpure <<< map liftImpure) e
 
 fromStEvent :: STEvent ~> AnEvent Zora
-fromStEvent (AnEvent e) = AnEvent $ dimap (map runPure) (map liftPure <<< liftPure) e
+fromStEvent (AnEvent e) = AnEvent $ dimap (map (unsafeCoerce <<< runImpure)) (liftPure <<< map liftPure) e
 
 toEvent :: AnEvent Zora ~> Event
-toEvent (AnEvent e) = AnEvent $ dimap (map liftImpure) (map runImpure <<< runImpure) e
+toEvent (AnEvent e) = AnEvent $ dimap (map liftImpure) (runImpure <<< map runImpure) e
 
 toStEvent :: AnEvent Zora ~> STEvent
-toStEvent (AnEvent e) = AnEvent $ dimap (map liftPure) (map runPure <<< runPure) e
+toStEvent (AnEvent e) = AnEvent $ dimap (map liftPure) (runPure <<< map runPure) e
 
 type Backdoor = { makeEvent :: MakeEvent
      , create :: Create

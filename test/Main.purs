@@ -3,12 +3,15 @@ module Test.Main where
 import Prelude
 
 import Control.Alt ((<|>))
+import Control.Monad.ST.Global (toEffect)
 import Control.Monad.ST.Internal (ST, STRef, run)
 import Control.Monad.ST.Internal as RRef
+import Control.Monad.ST.Ref as STRef
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Writer (execWriterT, tell)
 import Control.Plus (empty)
 import Data.Array (cons, snoc, replicate)
+import Data.Array as Array
 import Data.Filterable (filter)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
@@ -21,12 +24,12 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), backdoor, fromEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, toEvent)
+import FRP.Event (AnEvent, Backdoor, EventIO, MakeEvent(..), STEvent, ZoraEvent, backdoor, fromEvent, fromStEvent, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn, subscribe, toEvent, toStEvent)
 import FRP.Event as Event
 import FRP.Event.Class (class IsEvent, fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
-import Hyrule.Zora (Zora)
+import Hyrule.Zora (Zora, liftImpure, liftPure, runImpure, runPure)
 import Test.Spec (Spec, describe, it)
 import Test.Spec.Assertions (shouldEqual, shouldSatisfy)
 import Test.Spec.Console (write)
@@ -660,3 +663,53 @@ main = do
             a <- Ref.read rf
             _ <- unsafeBackdoor old backdoor
             shouldEqual a [ 3, 2, 1 ]
+        describe "Zora" do
+          it "nullifies effect" $ liftEffect do
+            stRef <- toEffect $ STRef.new []
+            efRef <- Ref.new []
+            toEffect $ runPure do
+              liftImpure do
+                Ref.modify_ (Array.cons 0) efRef
+              liftPure do
+                void $ STRef.modify (Array.cons 0) stRef
+            stValue <- toEffect $ STRef.read stRef
+            efValue <- Ref.read efRef
+            stValue `shouldEqual` [0]
+            efValue `shouldEqual` []
+          it "performs effect" $ liftEffect do
+            stRef <- toEffect $ STRef.new []
+            efRef <- Ref.new []
+            runImpure do
+              liftImpure do
+                Ref.modify_ (Array.cons 0) efRef
+              liftPure do
+                void $ STRef.modify (Array.cons 0) stRef
+            stValue <- toEffect $ STRef.read stRef
+            efValue <- Ref.read efRef
+            stValue `shouldEqual` [0]
+            efValue `shouldEqual` [0]
+          describe "Hyrule" do
+            it "fromStEvent+toEvent" $ liftEffect do
+              efRef <- Ref.new []
+              let
+                stEvent :: STEvent Int
+                stEvent = pure 0
+
+                zrEvent :: ZoraEvent Int
+                zrEvent = fromStEvent stEvent
+              _ <- subscribe (toEvent zrEvent) \k ->
+                      Ref.modify_ (Array.cons k) efRef
+              efValue <- Ref.read efRef
+              efValue `shouldEqual` [0]
+            it "fromStEvent+toStEvent" $ liftEffect do
+              stRef <- toEffect $ STRef.new []
+              let
+                stEvent :: STEvent Int
+                stEvent = pure 0
+
+                zrEvent :: ZoraEvent Int
+                zrEvent = fromStEvent stEvent
+              _ <- toEffect $ subscribe (toStEvent zrEvent) \k ->
+                      void $ STRef.modify (Array.cons k) stRef
+              stValue <- toEffect $ STRef.read stRef
+              stValue `shouldEqual` [0]
