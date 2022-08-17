@@ -34,7 +34,6 @@ import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
 import FRP.Event (class IsEvent, AnEvent, fix, fold, keepLatest, sampleOn, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
-import FRP.Event.Class ((<|*>))
 
 -- | `ABehavior` is the more general type of `Behavior`, which is parameterized
 -- | over some underlying `event` type.
@@ -89,7 +88,7 @@ behavior = ABehavior
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (sampleOn ((#) <$> (pure a `alt` e)))
+step a e = ABehavior (sampleOn (pure a `alt` e))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -146,7 +145,7 @@ integral g initial t b =
       let x = sample b (e $> identity)
           y = withLast (sampleBy Tuple t x)
           z = fold approx initial y
-      in (#) <$> z <|*> e
+      in sampleOn z e
   where
     approx s { last: Nothing } = s
     approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
@@ -191,7 +190,7 @@ derivative g t b =
       let x = sample b (e $> identity)
           y = withLast (sampleBy Tuple t x)
           z = map approx y
-      in (#) <$> z <|*> e
+      in sampleOn z e
   where
     approx { last: Nothing } = zero
     approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
@@ -215,7 +214,7 @@ fixB a f =
   behavior \s ->
     fix \event ->
       let b = f (step a event)
-      in { input: sample_ b s, output: (#) <$> event <|*> s }
+      in { input: sample_ b s, output: sampleOn event s }
 
 -- | Solve a first order differential equation of the form
 -- |

@@ -143,6 +143,7 @@ instance eventIsEvent :: MonadST s m => Class.IsEvent (AnEvent m) where
   fold = fold
   keepLatest = keepLatest
   sampleOn = sampleOn
+  sampleOnLeft = sampleOnLeft
   fix = fix
 
 instance semigroupEvent :: (Semigroup a, MonadST s m) => Semigroup (AnEvent m a) where
@@ -185,16 +186,28 @@ filter p (AnEvent e) =
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires.
-sampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m (a -> b) -> AnEvent m a -> AnEvent m b
+sampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
 sampleOn (AnEvent e1) (AnEvent e2) =
   AnEvent \k -> do
     latest <- liftST $ Ref.new Nothing
     c1 <-
-      e1 \f -> do
-        liftST $ void $ Ref.write (Just f) latest
+      e1 \a -> do
+        liftST $ void $ Ref.write (Just a) latest
     c2 <-
-      e2 \a -> do
+      e2 \f -> do
+        (liftST $ Ref.read latest) >>= traverse_ (k <<< f)
+    pure (c1 *> c2)
+
+sampleOnLeft :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
+sampleOnLeft (AnEvent e1) (AnEvent e2) =
+  AnEvent \k -> do
+    latest <- liftST $ Ref.new Nothing
+    c1 <-
+      e1 \a -> do
         (liftST $ Ref.read latest) >>= traverse_ \f -> k (f a)
+    c2 <-
+      e2 \f -> do
+        liftST $ void $ Ref.write (Just f) latest
     pure (c1 *> c2)
 
 biSampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b

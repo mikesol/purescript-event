@@ -207,9 +207,13 @@ instance isEventSemantic :: Bounded time => IsEvent (Semantic time) where
          , value: Tuple t b'
          }
 
-  sampleOn :: forall a b. Semantic time (a -> b) -> Semantic time a -> Semantic time b
+  sampleOn :: forall a b. Semantic time a -> Semantic time (a -> b) -> Semantic time b
   sampleOn (Semantic xs) (Semantic ys) = Semantic (filterMap go ys) where
-    go (Tuple t f) = map ((#) f) <$> latestAt t xs
+    go (Tuple t f) = map f <$> latestAt t xs
+
+  sampleOnLeft :: forall a b. Semantic time a -> Semantic time (a -> b) -> Semantic time b
+  sampleOnLeft (Semantic xs) (Semantic ys) = Semantic (filterMap go xs) where
+    go (Tuple t a) = map ((#) a) <$> latestAt t ys
 
   keepLatest :: forall a. Semantic time (Semantic time a) -> Semantic time a
   keepLatest (Semantic es) = Semantic (go es) where

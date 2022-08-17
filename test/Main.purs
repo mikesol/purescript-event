@@ -21,9 +21,9 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (Behavior, behavior, gate)
-import FRP.Event (Backdoor, EventIO, MakeEvent(..), MakeEventT, backdoor, hot, keepLatest, mailboxed, makeEvent, memoize, sampleOn)
+import FRP.Event (Backdoor, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, memoize)
 import FRP.Event as Event
-import FRP.Event.Class (class IsEvent, fold)
+import FRP.Event.Class (class IsEvent, fold, (<|*>))
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (Spec, describe, it)
@@ -191,7 +191,7 @@ main = do
                       let foldy = fold (\a b -> a + b) 0 add3
                       let add4 = map (add 4) add3
                       let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn (map (/\) add2) (filter (_ > 5) altr)
+                      (/\) <$> add2 <|*> (filter (_ > 5) altr)
                   unsub <- subscribe x (\i -> Ref.modify_ (cons i) rf)
                   push 0
                   Ref.read rf >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
@@ -577,7 +577,7 @@ main = do
                       let foldy = fold (\a b -> a + b) 0 add3
                       let add4 = map (add 4) add3
                       let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                      sampleOn (map (/\) add2) (filter (_ > 5) altr)
+                      (/\) <$> add2 <|*> (filter (_ > 5) altr)
                   unsub <- lift $ Event.subscribe x (\i -> modify__ (cons i) rf)
                   lift $ push 0
                   (lift $ RRef.read rf) >>= tell <<< shouldEqual [ Tuple 3 10, Tuple 3 6 ]

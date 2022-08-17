@@ -6,9 +6,19 @@ module FRP.Event.Class
   , mapAccum
   , withLast
   , sampleOn
+  , (<|**>)
+  , sampleOnOp
   , (<|*>)
   , sampleOn_
   , (<|*)
+  , sampleOnLeft
+  , (<**|>)
+  , sampleOnLeftOp
+  , (<*|>)
+  , sampleOnLeft_
+  , (*|>)
+  , applyOp
+  , (<**>)
   , keepLatest
   , fix
   , gate
@@ -38,10 +48,27 @@ class (Alternative event, Filterable event) <= IsEvent event where
   -- Temporal order for fold
   fold :: forall a b. (b -> a -> b) -> b -> event a -> event b
   keepLatest :: forall a. event (event a) -> event a
-  sampleOn :: forall a b. event (a -> b) -> event a -> event b
+  sampleOn :: forall a b. event a -> event (a -> b) -> event b
+  sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
 
-infixl 4 sampleOn as <|*>
+infixl 4 sampleOn as <|**>
+infixl 4 sampleOnLeft as <**|>
+
+sampleOnOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnOp ef ea = sampleOn ef ((#) <$> ea)
+
+infixl 4 sampleOnOp as <|*>
+
+sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnLeftOp ef ea = sampleOnLeft ef ((#) <$> ea)
+
+infixl 4 sampleOnLeftOp as <*|>
+
+applyOp :: forall event a b. Applicative event => event a -> event (a -> b) -> event b
+applyOp ea ef = apply ((#) <$> ea) ef
+
+infixl 4 applyOp as <**>
 
 -- | Count the number of events received.
 count :: forall event a. IsEvent event => event a -> event Int
@@ -73,9 +100,14 @@ mapAccum f acc xs = filterMap snd
 -- | at the times when the second event fires, ignoring the values produced by
 -- | the second event.
 sampleOn_ :: forall event a b. IsEvent event => event a -> event b -> event a
-sampleOn_ a b = sampleOn (const <$> a) b
+sampleOn_ a b = sampleOn a (const identity <$> b)
 
-infixl 4 sampleOn as <|*
+infixl 4 sampleOn_ as <|*
+
+sampleOnLeft_ :: forall event a b. IsEvent event => event a -> event b -> event b
+sampleOnLeft_ a b = sampleOnLeft a (const <$> b)
+
+infixl 4 sampleOnLeft_ as *|>
 
 -- | Sample the events that are fired while a boolean event is true. Note that,
 -- | until the boolean event fires, it will be assumed to be `false`, and events
