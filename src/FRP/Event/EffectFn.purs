@@ -277,7 +277,7 @@ keepLatest (Event e) =
 fix :: forall i o. (Event i -> { input :: Event i, output :: Event o }) -> Event o
 fix f =
   Event $ mkEffectFn1 \k -> do
-    { event, push } <- create
+    { event, push } <- create'
     let { input: Event input, output: Event output } = f event
     c1 <- runEffectFn1 input push
     c2 <- runEffectFn1 output k
@@ -290,13 +290,13 @@ subscribe :: SubscribeT
 subscribe = (\(Subscribe nt) -> nt) backdoor.subscribe
 
 type SubscribeT =
-  forall a. EffectFn2 (Event a) (EffectFn1 a Unit) (Effect Unit)
+  forall a. Event a -> (a -> Effect Unit) -> Effect (Effect Unit)
 
 newtype Subscribe = Subscribe SubscribeT
 
 type MakeEventT =
   forall a
-   . EffectFn1 (EffectFn1 a Unit) (Effect Unit)
+   . ((a -> Effect Unit) -> Effect (Effect Unit))
   -> Event a
 
 newtype MakeEvent = MakeEvent MakeEventT
@@ -311,6 +311,11 @@ makeEvent i = (\(MakeEvent nt) -> nt) backdoor.makeEvent i
 
 type EventIO a =
   { event :: Event a
+  , push :: a -> Effect Unit
+  }
+
+type EventIO' a =
+  { event :: Event a
   , push :: EffectFn1 a Unit
   }
 
@@ -320,6 +325,22 @@ create = do
   pure unit
   (\(Create nt) -> nt) backdoor.create
 
+create' :: forall a. Effect (EventIO' a)
+create' = do
+  subscribers <- Ref.new []
+  pure
+    { event:
+        Event $ mkEffectFn1 \k -> do
+          Ref.modify_ (_ <> [ k ]) subscribers
+          pure do
+            _ <- Ref.modify (deleteBy unsafeRefEq k) subscribers
+            pure unit
+    , push:
+        mkEffectFn1 \a -> do
+          o <- Ref.read subscribers
+          for_ o \k -> runEffectFn1 k a
+    }
+
 type CreateT = forall a. Effect (EventIO a)
 
 newtype Create = Create CreateT
@@ -328,7 +349,7 @@ newtype Create = Create CreateT
 bus :: BusT
 bus i = (\(Bus nt) -> nt) backdoor.bus i
 
-type BusT = forall r a. ((EffectFn1 a Unit) -> Event a -> r) -> Event r
+type BusT = forall r a. ((a -> Effect Unit) -> Event a -> r) -> Event r
 newtype Bus = Bus BusT
 
 -- | Takes the entire domain of a and allows for ad-hoc specialization.
@@ -363,7 +384,7 @@ burning
    . EffectFn2 a (Event a) { event :: Event a, unsubscribe :: Effect Unit }
 burning = mkEffectFn2 \i (Event e) -> do
   r <- Ref.new i
-  { event, push } <- create
+  { event, push } <- create'
   unsubscribe <- runEffectFn1 e $ mkEffectFn1 \x -> do
     Ref.write x r
     runEffectFn1 push x
@@ -403,7 +424,7 @@ backdoor =
   { makeEvent:
       let
         makeEvent_ :: MakeEvent
-        makeEvent_ = MakeEvent Event
+        makeEvent_ = MakeEvent \e -> Event $ mkEffectFn1 \k -> e (runEffectFn1 k)
       in
         makeEvent_
   , create:
@@ -419,7 +440,7 @@ backdoor =
                     _ <- Ref.modify (deleteBy unsafeRefEq k) subscribers
                     pure unit
             , push:
-                mkEffectFn1 \a -> do
+                \a -> do
                   o <- Ref.read subscribers
                   for_ o \k -> runEffectFn1 k a
             }
@@ -428,7 +449,7 @@ backdoor =
   , subscribe:
       let
         subscribe_ :: Subscribe
-        subscribe_ = Subscribe (mkEffectFn2 \(Event e) k -> runEffectFn1 e k)
+        subscribe_ = Subscribe \(Event e) k -> runEffectFn1 e (mkEffectFn1 k)
       in
         subscribe_
   , bus:
@@ -444,7 +465,7 @@ backdoor =
       let
         memoize_ :: Memoize
         memoize_ = Memoize \(Event e) f -> Event $ mkEffectFn1 \k -> do
-          { push, event } <- create
+          { push, event } <- create'
           runEffectFn1 k (f event)
           runEffectFn1 e push
       in
@@ -454,7 +475,7 @@ backdoor =
         hot_ :: Hot
         hot_ = Hot
           ( mkEffectFn1 \(Event e) -> do
-              { event, push } <- create
+              { event, push } <- create'
               unsubscribe <- runEffectFn1 e push
               pure { event, unsubscribe }
           )
