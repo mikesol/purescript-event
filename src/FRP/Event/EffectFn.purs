@@ -211,7 +211,9 @@ sampleOn (Event e1) (Event e2) =
       runEffectFn1 e2 $ mkEffectFn1 \f -> do
         o <- Ref.read latest
         for_ o (\a -> runEffectFn1 k (f a))
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 biSampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
 biSampleOn (Event e1) (Event e2) =
@@ -254,7 +256,9 @@ biSampleOn (Event e1) (Event e2) =
     -- Free the samples so they can be GCed
     _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
     _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 -- | Flatten a nested `Event`, reporting values only from the most recent
 -- | inner `Event`.
@@ -281,7 +285,9 @@ fix f =
     let { input: Event input, output: Event output } = f event
     c1 <- runEffectFn1 input push
     c2 <- runEffectFn1 output k
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 -- | Subscribe to an `Event` by providing a callback.
 -- |

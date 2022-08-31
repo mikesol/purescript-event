@@ -37,8 +37,7 @@ module FRP.Event
   , subscribe
   , toEvent
   , toStEvent
-  )
-  where
+  ) where
 
 import Prelude
 
@@ -128,14 +127,16 @@ instance filterableEvent :: Applicative m => Filterable.Filterable (AnEvent m) w
     , right: Filterable.filterMap (hush <<< f) xs
     }
 
-instance altEvent :: Applicative m => Alt (AnEvent m) where
+instance altEvent :: Monad m => Alt (AnEvent m) where
   alt (AnEvent f) (AnEvent g) =
-    AnEvent \k -> ado
+    AnEvent \k -> do
       c1 <- f k
       c2 <- g k
-      in (c1 *> c2)
+      pure do
+        c1
+        c2
 
-instance plusEvent :: Applicative m => Plus (AnEvent m) where
+instance plusEvent :: Monad m => Plus (AnEvent m) where
   empty = AnEvent \_ -> pure (pure unit)
 
 instance applyEvent :: MonadST s m => Apply (AnEvent m) where
@@ -202,7 +203,9 @@ sampleOn (AnEvent e1) (AnEvent e2) =
     c2 <-
       e2 \f -> do
         (liftST $ Ref.read latest) >>= traverse_ (k <<< f)
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 biSampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
 biSampleOn (AnEvent e1) (AnEvent e2) =
@@ -235,15 +238,17 @@ biSampleOn (AnEvent e1) (AnEvent e2) =
       -- if there are no samples in samples1, we still want to write samples2
       [] -> void $ liftST $ Ref.write (Array.last samples2) latest2
       _ -> for_ samples1 \a -> do
-          -- We write the current values as we go through -- this would only matter for recursive events
-          _ <- liftST $ Ref.write (Just a) latest1
-          for_ samples2 \f -> do
-            _ <- liftST $ Ref.write (Just f) latest2
-            k (f a)
+        -- We write the current values as we go through -- this would only matter for recursive events
+        _ <- liftST $ Ref.write (Just a) latest1
+        for_ samples2 \f -> do
+          _ <- liftST $ Ref.write (Just f) latest2
+          k (f a)
     -- Free the samples so they can be GCed
     _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
     _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 -- | Flatten a nested `Event`, reporting values only from the most recent
 -- | inner `Event`.
@@ -268,7 +273,9 @@ fix f =
     let { input, output } = f event
     c1 <- subscribe input push
     c2 <- subscribe output k
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 -- | Subscribe to an `Event` by providing a callback.
 -- |
@@ -404,15 +411,16 @@ toEvent (AnEvent e) = AnEvent $ dimap (map liftImpure) (runImpure <<< map runImp
 toStEvent :: AnEvent Zora ~> STEvent
 toStEvent (AnEvent e) = AnEvent $ dimap (map liftPure) (runPure <<< map runPure) e
 
-type Backdoor = { makeEvent :: MakeEvent
-     , create :: Create
-     , subscribe :: Subscribe
-     , bus :: Bus
-     , memoize :: Memoize
-     , hot :: Hot
-     , mailboxed :: Mailboxed
-     , delay :: Delay
-     }
+type Backdoor =
+  { makeEvent :: MakeEvent
+  , create :: Create
+  , subscribe :: Subscribe
+  , bus :: Bus
+  , memoize :: Memoize
+  , hot :: Hot
+  , mailboxed :: Mailboxed
+  , delay :: Delay
+  }
 
 backdoor :: Backdoor
 backdoor =
