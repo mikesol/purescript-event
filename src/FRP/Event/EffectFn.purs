@@ -374,7 +374,7 @@ hot :: HotT
 hot = (\(Hot nt) -> nt) backdoor.hot
 
 type HotT =
-  forall a. EffectFn1 (Event a) { event :: Event a, unsubscribe :: Effect Unit }
+  forall a. Event a -> Effect { event :: Event a, unsubscribe :: Effect Unit }
 
 newtype Hot = Hot HotT
 
@@ -474,7 +474,7 @@ backdoor =
       let
         hot_ :: Hot
         hot_ = Hot
-          ( mkEffectFn1 \(Event e) -> do
+          ( \(Event e) -> do
               { event, push } <- create'
               unsubscribe <- runEffectFn1 e push
               pure { event, unsubscribe }
