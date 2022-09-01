@@ -491,7 +491,7 @@ backdoor =
         makeEvent_ :: MakeEvent
         makeEvent_ = MakeEvent
           \e -> Event $ mkEffectFn2 \tf k ->
-            if tf then pure (pure unit) else e (runEffectFn1 k)
+            if tf then pure (pure unit) else e (\a -> runEffectFn1 k a)
       in
         makeEvent_
   , makePureEvent:
@@ -499,7 +499,7 @@ backdoor =
         makePureEvent_ :: MakePureEvent
         makePureEvent_ = MakePureEvent
           \e -> Event $ mkEffectFn2 \_ k ->
-            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) e) (runEffectFn1 k)
+            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) e) (\a -> runEffectFn1 k a)
       in
         makePureEvent_
   , makeLemmingEvent:
@@ -510,7 +510,7 @@ backdoor =
             let
               o :: forall r a. Event a  -> (a -> ST r Unit)  -> ST r (ST r Unit)
               o (Event ev) kx = (unsafeCoerce :: Effect (Effect Unit) -> ST r (ST r Unit)) $ runEffectFn2 ev tf (mkEffectFn1 ((unsafeCoerce :: (a -> ST r Unit) -> a -> Effect Unit) kx))
-            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) (e o)) (runEffectFn1 k)
+            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) (e o)) (\a -> runEffectFn1 k a)
       in
         makeLemmingEvent_
   , create:
