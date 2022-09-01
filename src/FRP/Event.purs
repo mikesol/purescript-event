@@ -352,7 +352,7 @@ makePureEvent i = (\(MakePureEvent nt) -> nt) backdoor.makePureEvent i
 --
 type MakeLemmingEventT =
   forall a
-   . ((Event a -> (a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> ST Global Unit) -> ST Global (ST Global Unit))
+   . ((forall b. Event b -> (b -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> ST Global Unit) -> ST Global (ST Global Unit))
   -> Event a
 
 newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
