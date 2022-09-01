@@ -299,7 +299,7 @@ solve2' = solve2 (_ $ identity)
 -- | Animate a `Behavior` by providing a rendering function.
 animate
   :: forall scene
-   . ABehavior (Event) scene
+   . ABehavior Event scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
 animate scene render = subscribe (sample_ scene animationFrame) render
