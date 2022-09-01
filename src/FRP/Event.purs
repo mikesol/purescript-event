@@ -16,6 +16,8 @@ module FRP.Event
   , MakeEventT
   , MakePureEvent(..)
   , MakePureEventT
+  , MakeLemmingEvent(..)
+  , MakeLemmingEventT
   , Memoize(..)
   , MemoizeT
   , Subscribe(..)
@@ -30,6 +32,7 @@ module FRP.Event
   , hot
   , mailboxed
   , makeEvent
+  , makeLemmingEvent
   , makePureEvent
   , memoize
   , module Class
@@ -338,13 +341,29 @@ type MakePureEventT =
 
 newtype MakePureEvent = MakePureEvent MakePureEventT
 
--- | Make an `Event` from a function which accepts a callback and returns an
+-- | Make a pure `Event` from a function which accepts a callback and returns an
 -- | unsubscription function.
 -- |
 -- | Note: you probably want to use `create` instead, unless you need explicit
 -- | control over unsubscription.
 makePureEvent :: MakePureEventT
 makePureEvent i = (\(MakePureEvent nt) -> nt) backdoor.makePureEvent i
+
+--
+type MakeLemmingEventT =
+  forall a
+   . ((Event a -> (a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> ST Global Unit) -> ST Global (ST Global Unit))
+  -> Event a
+
+newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
+
+-- | Make an `Event` from a function which accepts a callback and returns an
+-- | unsubscription function.
+-- |
+-- | Note: you probably want to use `create` instead, unless you need explicit
+-- | control over unsubscription.
+makeLemmingEvent :: MakeLemmingEventT
+makeLemmingEvent i = (\(MakeLemmingEvent nt) -> nt) backdoor.makeLemmingEvent i
 
 type EventIO a =
   { event :: Event a
@@ -454,6 +473,7 @@ newtype Delay = Delay DelayT
 type Backdoor =
   { makeEvent :: MakeEvent
   , makePureEvent :: MakePureEvent
+  , makeLemmingEvent :: MakeLemmingEvent
   , create :: Create
   , subscribe :: Subscribe
   , subscribePure :: SubscribePure
@@ -482,6 +502,17 @@ backdoor =
             ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) e) (runEffectFn1 k)
       in
         makePureEvent_
+  , makeLemmingEvent:
+      let
+        makeLemmingEvent_ :: MakeLemmingEvent
+        makeLemmingEvent_ = MakeLemmingEvent
+          \e -> Event $ mkEffectFn2 \tf k -> do
+            let
+              o :: forall r a. Event a  -> (a -> ST r Unit)  -> ST r (ST r Unit)
+              o (Event ev) kx = (unsafeCoerce :: Effect (Effect Unit) -> ST r (ST r Unit)) $ runEffectFn2 ev tf (mkEffectFn1 ((unsafeCoerce :: (a -> ST r Unit) -> a -> Effect Unit) kx))
+            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) (e o)) (runEffectFn1 k)
+      in
+        makeLemmingEvent_
   , create:
       let
         create_ :: Create

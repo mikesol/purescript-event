@@ -7,7 +7,7 @@ import Control.Monad.ST.Global (Global)
 import Data.Symbol (class IsSymbol)
 import Data.Tuple.Nested (type (/\), (/\))
 import Effect (Effect)
-import FRP.Event (Event, create, makePureEvent)
+import FRP.Event (Event, create, makeLemmingEvent)
 import Prim.Row as R
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
@@ -80,7 +80,7 @@ vbackdoor =
           => proxy (V i)
           -> ({ | p } -> { | e } -> o)
           -> Event o
-        vbus__ _ f = makePureEvent \k -> do
+        vbus__ _ f = makeLemmingEvent \_ k -> do
           e /\ p <- vb (Proxy :: _ ri)
           k (f e p)
           -- is any unsubscribe needed here?
