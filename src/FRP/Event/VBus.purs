@@ -2,23 +2,25 @@ module FRP.Event.VBus (V, vbus, class VBus, VbusT, Vbus(..), vb, vbackdoor, VBac
 
 import Prelude
 
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Global (Global)
 import Data.Symbol (class IsSymbol)
 import Data.Tuple.Nested (type (/\), (/\))
 import Effect (Effect)
-import FRP.Event (Event, create, makeEvent)
+import FRP.Event (Event, create, makePureEvent)
 import Prim.Row as R
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
 import Record as Record
 import Type.Proxy (Proxy(..))
+import Unsafe.Coerce (unsafeCoerce)
 
 class VBus :: RowList Type -> Row Type -> Row Type -> Constraint
 class VBus ri p e | ri -> p e where
-  vb :: Proxy ri -> Effect ({ | p } /\ { | e })
+  vb :: Proxy ri -> ST Global ({ | p } /\ { | e })
 
 instance vbusNil :: VBus RL.Nil () () where
   vb _ = pure ({} /\ {})
-
 
 data V (bus :: Row Type)
 
@@ -27,14 +29,14 @@ instance vbusCons1 ::
   , RowToList i irl
   , R.Cons key { | p'' } p' p
   , R.Cons key { | e'' } e' e
-  , VBus irl p'' e'' 
-  , VBus rest p' e' 
+  , VBus irl p'' e''
+  , VBus rest p' e'
   , R.Lacks key p'
   , R.Lacks key e'
   ) =>
   VBus (RL.Cons key (V i) rest) p e where
   vb _ = do
-    p /\ e <- vb (Proxy :: _ rest) 
+    p /\ e <- vb (Proxy :: _ rest)
     p' /\ e' <- vb (Proxy :: _ irl)
     pure (Record.insert (Proxy :: _ key) p' p /\ Record.insert (Proxy :: _ key) e' e)
 
@@ -49,9 +51,8 @@ else instance vbusCons2 ::
   VBus (RL.Cons key z rest) p e where
   vb _ = do
     p /\ e <- vb (Proxy :: _ rest)
-    { event, push } <- create
-    pure (Record.insert (Proxy :: _ key) (push :: z -> Effect Unit) p /\ Record.insert (Proxy :: _ key) event e)
-
+    { event, push } <- (unsafeCoerce :: Effect _ -> ST Global _) create
+    pure (Record.insert (Proxy :: _ key) push p /\ Record.insert (Proxy :: _ key) event e)
 
 vbus :: VbusT
 vbus i = (\(Vbus nt) -> nt) vbackdoor.vbus i
@@ -75,11 +76,11 @@ vbackdoor =
         vbus__
           :: forall proxy ri i p e o
            . RowToList i ri
-          => VBus ri p e 
+          => VBus ri p e
           => proxy (V i)
           -> ({ | p } -> { | e } -> o)
           -> Event o
-        vbus__ _ f = makeEvent \k -> do
+        vbus__ _ f = makePureEvent \k -> do
           e /\ p <- vb (Proxy :: _ ri)
           k (f e p)
           -- is any unsubscribe needed here?
