@@ -247,10 +247,10 @@ biSampleOn (Event e1) (Event e2) =
     case samples1 of
       -- if there are no samples in samples1, we still want to write samples2
       [] -> Ref.write (Array.last samples2) latest2
-      _ -> for_ samples1 \a -> do
+      _ -> foreachE samples1 \a -> do
         -- We write the current values as we go through -- this would only matter for recursive events
         Ref.write (Just a) latest1
-        for_ samples2 \f -> do
+        foreachE samples2 \f -> do
           Ref.write (Just f) latest2
           runEffectFn1 k (f a)
     -- Free the samples so they can be GCed
@@ -375,7 +375,7 @@ create' = do
     , push:
         mkEffectFn1 \a -> do
           o <- Ref.read subscribers
-          for_ o \k -> runEffectFn1 k a
+          foreachE o \k -> runEffectFn1 k a
     }
 
 type CreateT =
@@ -571,7 +571,7 @@ backdoor =
             o <- Ref.read r
             case Map.lookup address o of
               Nothing -> pure unit
-              Just arr -> for_ arr (\i -> runEffectFn1 i payload)
+              Just arr -> foreachE arr (\i -> runEffectFn1 i payload)
           pure do
             -- free references - helps gc?
             void $ Ref.write (Map.empty) r
