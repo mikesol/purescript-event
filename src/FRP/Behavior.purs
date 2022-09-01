@@ -47,7 +47,7 @@ newtype ABehavior event a = ABehavior (forall b. event (a -> b) -> event b)
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-type Behavior = ABehavior (Event)
+type Behavior = ABehavior Event
 
 instance functorABehavior :: Functor event => Functor (ABehavior event) where
   map f (ABehavior b) = ABehavior \e -> b (map (_ <<< f) e)
@@ -299,7 +299,7 @@ solve2' = solve2 (_ $ identity)
 -- | Animate a `Behavior` by providing a rendering function.
 animate
   :: forall scene
-   . ABehavior (Event) scene
+   . ABehavior Event scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
 animate scene render = subscribe (sample_ scene animationFrame) render
