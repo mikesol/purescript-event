@@ -317,7 +317,6 @@ type SubscribePureT =
 
 newtype SubscribePure = SubscribePure SubscribePureT
 
-
 type MakeEventT =
   forall a
    . ((a -> Effect Unit) -> Effect (Effect Unit))
@@ -498,8 +497,11 @@ backdoor =
       let
         makePureEvent_ :: MakePureEvent
         makePureEvent_ = MakePureEvent
-          \e -> Event $ mkEffectFn2 \_ k ->
-            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) e) (\a -> runEffectFn1 k a)
+          \e -> Event $ mkEffectFn2 \_ k -> do
+            let
+              stEventToEvent :: forall r a. ((a -> ST r Unit) -> ST r (ST r Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)
+              stEventToEvent = unsafeCoerce
+            stEventToEvent e (\a -> runEffectFn1 k a)
       in
         makePureEvent_
   , makeLemmingEvent:
@@ -508,9 +510,19 @@ backdoor =
         makeLemmingEvent_ = MakeLemmingEvent
           \e -> Event $ mkEffectFn2 \tf k -> do
             let
-              o :: forall r a. Event a  -> (a -> ST r Unit)  -> ST r (ST r Unit)
-              o (Event ev) kx = (unsafeCoerce :: Effect (Effect Unit) -> ST r (ST r Unit)) $ runEffectFn2 ev tf (mkEffectFn1 ((unsafeCoerce :: (a -> ST r Unit) -> a -> Effect Unit) kx))
-            ((unsafeCoerce :: forall a. ((a -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)) (e o)) (\a -> runEffectFn1 k a)
+              effectfulUnsubscribeToSTUnsubscribe :: forall r. Effect (Effect Unit) -> ST r (ST r Unit)
+              effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
+
+              stPusherToEffectPusher :: forall r a. (a -> ST r Unit) -> a -> Effect Unit
+              stPusherToEffectPusher = unsafeCoerce
+
+              stEventToEvent :: forall r a. ((a -> ST r Unit) -> ST r (ST r Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)
+              stEventToEvent = unsafeCoerce
+
+              o :: forall r a. Event a -> (a -> ST r Unit) -> ST r (ST r Unit)
+              o (Event ev) kx = effectfulUnsubscribeToSTUnsubscribe $ runEffectFn2 ev tf (mkEffectFn1 (stPusherToEffectPusher kx))
+
+            stEventToEvent (e o) (\a -> runEffectFn1 k a)
       in
         makeLemmingEvent_
   , create:
@@ -543,8 +555,14 @@ backdoor =
         subscribePure_ :: SubscribePure
         subscribePure_ = SubscribePure o
           where
-          o :: forall r a. Event a  -> (a -> ST r Unit)  -> ST r (ST r Unit)
-          o (Event e) k = (unsafeCoerce :: Effect (Effect Unit) -> ST r (ST r Unit)) $ runEffectFn2 e true (mkEffectFn1 ((unsafeCoerce :: (a -> ST r Unit) -> a -> Effect Unit) k))
+          effectfulUnsubscribeToSTUnsubscribe :: forall r. Effect (Effect Unit) -> ST r (ST r Unit)
+          effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
+
+          stPusherToEffectPusher :: forall r a. (a -> ST r Unit) -> a -> Effect Unit
+          stPusherToEffectPusher = unsafeCoerce
+
+          o :: forall r a. Event a -> (a -> ST r Unit) -> ST r (ST r Unit)
+          o (Event e) k = effectfulUnsubscribeToSTUnsubscribe (runEffectFn2 e true (mkEffectFn1 (stPusherToEffectPusher k)))
       in
         subscribePure_
   , bus:
