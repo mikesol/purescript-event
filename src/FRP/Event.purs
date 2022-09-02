@@ -3,6 +3,8 @@ module FRP.Event
   , Bus(..)
   , BusT
   , Create(..)
+  , CreatePure(..)
+  , CreatePureT
   , CreateT
   , Delay(..)
   , DelayT
@@ -14,20 +16,22 @@ module FRP.Event
   , MailboxedT
   , MakeEvent(..)
   , MakeEventT
-  , MakePureEvent(..)
-  , MakePureEventT
   , MakeLemmingEvent(..)
   , MakeLemmingEventT
+  , MakePureEvent(..)
+  , MakePureEventT
   , Memoize(..)
   , MemoizeT
+  , PureEventIO
   , Subscribe(..)
-  , SubscribeT
   , SubscribePure(..)
   , SubscribePureT
+  , SubscribeT
   , backdoor
   , burning
   , bus
   , create
+  , createPure
   , delay
   , hot
   , mailboxed
@@ -48,6 +52,7 @@ import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Internal as STRef
 import Data.Array (deleteBy, length)
 import Data.Array as Array
 import Data.Array.ST as STArray
@@ -402,6 +407,23 @@ type CreateT =
 
 newtype Create = Create CreateT
 
+-- | Create an event and a function which supplies a value to that event in ST.
+createPure :: CreatePureT
+createPure = do
+  pure unit
+  (\(CreatePure nt) -> nt) backdoor.createPure
+
+type PureEventIO a =
+  { event :: Event a
+  , push :: a -> ST Global Unit
+  }
+
+type CreatePureT =
+  forall a
+   . ST Global (PureEventIO a)
+
+newtype CreatePure = CreatePure CreatePureT
+
 -- | Creates an event bus within a closure.
 bus :: BusT
 bus i = (\(Bus nt) -> nt) backdoor.bus i
@@ -474,6 +496,7 @@ type Backdoor =
   , makePureEvent :: MakePureEvent
   , makeLemmingEvent :: MakeLemmingEvent
   , create :: Create
+  , createPure :: CreatePure
   , subscribe :: Subscribe
   , subscribePure :: SubscribePure
   , bus :: Bus
@@ -544,6 +567,35 @@ backdoor =
             }
       in
         create_
+  , createPure:
+      let
+        createPure_ :: CreatePure
+        createPure_ = CreatePure do
+          subscribers <- STRef.new []
+          pure
+            { event:
+                Event $ mkEffectFn2 \_ k -> liftST do
+                  void $ STRef.modify (_ <> [ k ]) subscribers
+                  pure $ liftST do
+                    _ <- STRef.modify (deleteBy unsafeRefEq k) subscribers
+                    pure unit
+            , push:
+                \a -> do
+                  o <- STRef.read subscribers
+                  let
+                    foreachST :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
+                    foreachST = unsafeCoerce foreachE
+                  let
+                    -- in normal circumstances this would be very unsafe
+                    -- but as we're only creating a push/pull mechanism
+                    -- we can do this, as the unsafe-ty would come from
+                    -- elsewhere in the event chain
+                    effectToST :: Effect ~> ST Global
+                    effectToST = unsafeCoerce
+                  foreachST o \k -> effectToST (runEffectFn1 k a)
+            }
+      in
+        createPure_
   , subscribe:
       let
         subscribe_ :: Subscribe
