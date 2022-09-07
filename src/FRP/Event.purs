@@ -273,21 +273,17 @@ biSampleOn (Event e1) (Event e2) =
 keepLatest :: forall a. Event (Event a) -> Event a
 keepLatest (Event e) =
   Event $ mkEffectFn2 \tf k -> do
-    safeToIgnore <- Ref.new false
     cancelInner <- Ref.new (pure unit)
     cancelOuter <-
       runEffectFn2 e tf $ mkEffectFn1 \(Event inner) -> do
         -- in rare cases, cancelOuter may itself provoke an emission
         -- of the outer event, in which case this function would run
         -- to avoid that, we use a `safeToIgnore` flag
-        sti <- Ref.read safeToIgnore
-        unless sti do
-          ci <- Ref.read cancelInner
-          ci
-          c <- runEffectFn2 inner tf k
-          Ref.write c cancelInner
+        ci <- Ref.read cancelInner
+        ci
+        c <- runEffectFn2 inner tf k
+        Ref.write c cancelInner
     pure do
-      Ref.write true safeToIgnore
       ci <- Ref.read cancelInner
       ci
       cancelOuter
@@ -404,8 +400,7 @@ create' = do
             pure unit
     , push:
         mkEffectFn1 \a -> do
-          o <- Ref.read subscribers
-          foreachE o \k -> runEffectFn1 k a
+          foreachRefE subscribers \k -> runEffectFn1 k a
     }
 
 type CreateT =
@@ -569,8 +564,7 @@ backdoor =
                     pure unit
             , push:
                 \a -> do
-                  o <- Ref.read subscribers
-                  foreachE o \k -> runEffectFn1 k a
+                  foreachRefE subscribers \k -> runEffectFn1 k a
             }
       in
         create_
@@ -588,10 +582,9 @@ backdoor =
                     pure unit
             , push:
                 \a -> do
-                  o <- STRef.read subscribers
                   let
-                    foreachST :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
-                    foreachST = unsafeCoerce foreachE
+                    foreachRefST :: forall r a. STRef.STRef r (Array a) -> (a -> ST r Unit) -> ST r Unit
+                    foreachRefST = unsafeCoerce foreachRefE
                   let
                     -- in normal circumstances this would be very unsafe
                     -- but as we're only creating a push/pull mechanism
@@ -599,7 +592,7 @@ backdoor =
                     -- elsewhere in the event chain
                     effectToST :: Effect ~> ST Global
                     effectToST = unsafeCoerce
-                  foreachST o \k -> effectToST (runEffectFn1 k a)
+                  foreachRefST subscribers \k -> effectToST (runEffectFn1 k a)
             }
       in
         createPure_
@@ -709,3 +702,5 @@ backdoor =
       in
         delay_
   }
+
+foreign import foreachRefE :: forall a. Ref.Ref (Array a) -> (a -> Effect Unit) -> Effect Unit
