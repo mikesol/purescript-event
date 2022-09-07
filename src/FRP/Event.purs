@@ -52,7 +52,6 @@ import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Internal as STRef
 import Data.Array (deleteBy, length)
 import Data.Array as Array
 import Data.Array.ST as STArray
@@ -273,21 +272,17 @@ biSampleOn (Event e1) (Event e2) =
 keepLatest :: forall a. Event (Event a) -> Event a
 keepLatest (Event e) =
   Event $ mkEffectFn2 \tf k -> do
-    safeToIgnore <- Ref.new false
     cancelInner <- Ref.new (pure unit)
     cancelOuter <-
       runEffectFn2 e tf $ mkEffectFn1 \(Event inner) -> do
         -- in rare cases, cancelOuter may itself provoke an emission
         -- of the outer event, in which case this function would run
         -- to avoid that, we use a `safeToIgnore` flag
-        sti <- Ref.read safeToIgnore
-        unless sti do
-          ci <- Ref.read cancelInner
-          ci
-          c <- runEffectFn2 inner tf k
-          Ref.write c cancelInner
+        ci <- Ref.read cancelInner
+        ci
+        c <- runEffectFn2 inner tf k
+        Ref.write c cancelInner
     pure do
-      Ref.write true safeToIgnore
       ci <- Ref.read cancelInner
       ci
       cancelOuter
@@ -398,14 +393,18 @@ create' = do
   pure
     { event:
         Event $ mkEffectFn2 \_ k -> do
-          Ref.modify_ (_ <> [ k ]) subscribers
+          rk <- Ref.new k
+          Ref.modify_ (_ <> [ rk ]) subscribers
           pure do
-            _ <- Ref.modify (deleteBy unsafeRefEq k) subscribers
+            Ref.write mempty rk
+            _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
             pure unit
     , push:
         mkEffectFn1 \a -> do
           o <- Ref.read subscribers
-          foreachE o \k -> runEffectFn1 k a
+          foreachE o \rk -> do
+            k <- Ref.read rk
+            runEffectFn1 k a
     }
 
 type CreateT =
@@ -514,7 +513,27 @@ type Backdoor =
   }
 
 backdoor :: Backdoor
-backdoor =
+backdoor = do
+  let
+        create_ :: Create
+        create_ = Create do
+          subscribers <- Ref.new []
+          pure
+            { event:
+                Event $ mkEffectFn2 \_ k -> do
+                  rk <- Ref.new k
+                  Ref.modify_ (_ <> [ rk ]) subscribers
+                  pure do
+                    Ref.write mempty rk
+                    _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
+                    pure unit
+            , push:
+                \a -> do
+                  o <- Ref.read subscribers
+                  foreachE o \rk -> do
+                    k <- Ref.read rk
+                    runEffectFn1 k a
+            }
   { makeEvent:
       let
         makeEvent_ :: MakeEvent
@@ -555,54 +574,8 @@ backdoor =
             stEventToEvent (e o) (\a -> runEffectFn1 k a)
       in
         makeLemmingEvent_
-  , create:
-      let
-        create_ :: Create
-        create_ = Create do
-          subscribers <- Ref.new []
-          pure
-            { event:
-                Event $ mkEffectFn2 \_ k -> do
-                  Ref.modify_ (_ <> [ k ]) subscribers
-                  pure do
-                    _ <- Ref.modify (deleteBy unsafeRefEq k) subscribers
-                    pure unit
-            , push:
-                \a -> do
-                  o <- Ref.read subscribers
-                  foreachE o \k -> runEffectFn1 k a
-            }
-      in
-        create_
-  , createPure:
-      let
-        createPure_ :: CreatePure
-        createPure_ = CreatePure do
-          subscribers <- STRef.new []
-          pure
-            { event:
-                Event $ mkEffectFn2 \_ k -> liftST do
-                  void $ STRef.modify (_ <> [ k ]) subscribers
-                  pure $ liftST do
-                    _ <- STRef.modify (deleteBy unsafeRefEq k) subscribers
-                    pure unit
-            , push:
-                \a -> do
-                  o <- STRef.read subscribers
-                  let
-                    foreachST :: forall r a. Array a -> (a -> ST r Unit) -> ST r Unit
-                    foreachST = unsafeCoerce foreachE
-                  let
-                    -- in normal circumstances this would be very unsafe
-                    -- but as we're only creating a push/pull mechanism
-                    -- we can do this, as the unsafe-ty would come from
-                    -- elsewhere in the event chain
-                    effectToST :: Effect ~> ST Global
-                    effectToST = unsafeCoerce
-                  foreachST o \k -> effectToST (runEffectFn1 k a)
-            }
-      in
-        createPure_
+  , create: create_
+  , createPure: (unsafeCoerce :: Create -> CreatePure) create_
   , subscribe:
       let
         subscribe_ :: Subscribe
