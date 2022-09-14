@@ -188,9 +188,9 @@ data FoldPass a b = EventAndInput a b | EventAndOutput a b | Stop a b
 fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
 fold f e b = fix \i -> do
   let
-    middle = sampleOn (i <|> pure b) (Tuple <$> e)
+    output = sampleOn (i <|> pure b) (f <$> e)
 
-  { input: snd <$> middle, output: map (\(x /\ y) -> f x y) (sampleOn middle (e $> identity)) }
+  { input: output, output }
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
