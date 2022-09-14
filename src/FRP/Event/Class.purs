@@ -52,18 +52,18 @@ class (Alternative event, Filterable event) <= IsEvent event where
   sampleOnLeft :: forall a b. event (a -> b) -> event a -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
 
-infixl 4 sampleOnRight as <|**>
-infixl 4 sampleOnLeft as <**|>
+infixl 4 sampleOnRight as <|*>
+infixl 4 sampleOnLeft as <*|>
 
 sampleOnRightOp :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
 sampleOnRightOp ef ea = sampleOnRight ((#) <$> ef) ea
 
-infixl 4 sampleOnRightOp as <|*>
+infixl 4 sampleOnRightOp as <|**>
 
 sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
 sampleOnLeftOp ef ea = sampleOnLeft (($) <$> ef) ea
 
-infixl 4 sampleOnLeftOp as <*|>
+infixl 4 sampleOnLeftOp as <**|>
 
 applyOp :: forall event a b. Applicative event => event a -> event (a -> b) -> event b
 applyOp ea ef = apply ((#) <$> ea) ef
@@ -127,4 +127,4 @@ gateBy
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
   <$> (pure Nothing <|> Just <$> sampled)
-  <|**> sampler
+  <|*> sampler
