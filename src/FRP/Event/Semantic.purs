@@ -147,7 +147,7 @@ latestAt
 latestAt t xs = List.last (List.takeWhile ((_ <= t) <<< fst) xs)
 
 meaning :: forall time a. Bounded time => ABehavior (Semantic time) a -> time -> a
-meaning b t = unsafePartial valueOf (sample b (once t identity))
+meaning b t = unsafePartial valueOf (sample (map (#) b) (once t identity))
   where
   valueOf :: Partial => Semantic time a -> a
   valueOf (Semantic (Tuple _ a : Nil)) = a

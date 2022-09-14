@@ -98,12 +98,12 @@ unfold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> AB
 unfold f a e = step a (fold f a e)
 
 -- | Sample a `Behavior` on some `Event`.
-sample :: forall event a b. ABehavior event a -> event (a -> b) -> event b
-sample (ABehavior b) e = b e
+sample :: forall event a b. Functor event => ABehavior event (a -> b) -> event a -> event b
+sample (ABehavior b) e = b (map (#) e)
 
 -- | Sample a `Behavior` on some `Event` by providing a combining function.
 sampleBy :: forall event a b c. Functor event => (a -> b -> c) -> ABehavior event a -> event b -> event c
-sampleBy f b e = sample (map f b) (map applyFlipped e)
+sampleBy f b = sample (f <$> b)
 
 -- | Sample a `Behavior` on some `Event`, discarding the event's values.
 sample_ :: forall event a b. Functor event => ABehavior event a -> event b -> event a
@@ -112,7 +112,7 @@ sample_ = sampleBy const
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall event a. IsEvent event => ABehavior event a -> event (ABehavior event a) -> ABehavior event a
 switcher b0 e = behavior \s ->
-  keepLatest (pure (sample b0 s) `alt` map (\b -> sample b s) e)
+  keepLatest (pure (sample (map (#) b0) s) `alt` map (\b -> sample (map (#) b) s) e)
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> ABehavior event p -> event a -> event a
@@ -143,7 +143,7 @@ integral
   -> ABehavior event a
 integral g initial t b =
     ABehavior \e ->
-      let x = sample b (e $> identity)
+      let x = sample (const <$> b) e
           y = withLast (sampleBy Tuple t x)
           z = fold approx initial y
       in sampleOnRightOp z e
@@ -188,7 +188,7 @@ derivative
   -> ABehavior event a
 derivative g t b =
     ABehavior \e ->
-      let x = sample b (e $> identity)
+      let x = sample (const <$> b) e
           y = withLast (sampleBy Tuple t x)
           z = map approx y
       in sampleOnRightOp z e
