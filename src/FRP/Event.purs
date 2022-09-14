@@ -208,7 +208,7 @@ filter p (Event e) =
 
 
 sampleOnLeft :: forall a b. Event a -> Event (a -> b) -> Event b
-sampleOnLeft (AnEvent e1) (AnEvent e2) =
+sampleOnLeft (Event e1) (Event e2) =
   Event $ mkEffectFn2 \b k -> do
     latest <- Ref.new Nothing
     c1 <-

@@ -26,7 +26,7 @@ import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
 import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOn, subscribe)
 import FRP.Event as Event
-import FRP.Event.Class (class IsEvent, fold, (<|*>))
+import FRP.Event.Class (fold)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (describe, it)
@@ -155,7 +155,7 @@ main = do
             { push, event } <- Event.create
             let
               event' = do
-                let foldy = (fold (\_ b -> b + 1) event 0)
+                let foldy = (fold (\b _ -> b + 1) 0 event)
                 let add2 = map (add 2) foldy
                 let add3 = map (add 3) add2
                 let add4 = map (add 4) add3
@@ -182,7 +182,7 @@ main = do
                   let add1 = map (add 1) event
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
-                  let foldy = fold (\a b -> a + b) add3 0
+                  let foldy = fold (\b a -> a + b) 0 add3
                   let add4 = map (add 4) add3
                   let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
                   sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
@@ -473,6 +473,7 @@ main = do
                   usu
                   STRef.read rff
               oo `shouldEqual` [ 333, 42 ]
+              unsub
 
           describe "Backdoor" do
             it "should work" $ liftEffect do
