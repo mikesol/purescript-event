@@ -5,11 +5,11 @@ module FRP.Event.Class
   , count
   , mapAccum
   , withLast
-  , sampleOn
+  , sampleOnRight
   , (<|**>)
-  , sampleOnOp
+  , sampleOnRightOp
   , (<|*>)
-  , sampleOn_
+  , sampleOnRight_
   , (<|*)
   , sampleOnLeft
   , (<**|>)
@@ -48,17 +48,17 @@ class (Alternative event, Filterable event) <= IsEvent event where
   -- Temporal order for fold
   fold :: forall a b. (b -> a -> b) -> b -> event a -> event b
   keepLatest :: forall a. event (event a) -> event a
-  sampleOn :: forall a b. event a -> event (a -> b) -> event b
+  sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
   sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
 
-infixl 4 sampleOn as <|**>
+infixl 4 sampleOnRight as <|**>
 infixl 4 sampleOnLeft as <**|>
 
-sampleOnOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
-sampleOnOp ef ea = sampleOn ef ((#) <$> ea)
+sampleOnRightOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnRightOp ef ea = sampleOnRight ef ((#) <$> ea)
 
-infixl 4 sampleOnOp as <|*>
+infixl 4 sampleOnRightOp as <|*>
 
 sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
 sampleOnLeftOp ef ea = sampleOnLeft ef ((#) <$> ea)
@@ -99,10 +99,10 @@ mapAccum f acc xs = filterMap snd
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires, ignoring the values produced by
 -- | the second event.
-sampleOn_ :: forall event a b. IsEvent event => event a -> event b -> event a
-sampleOn_ a b = sampleOn a (const identity <$> b)
+sampleOnRight_ :: forall event a b. IsEvent event => event a -> event b -> event a
+sampleOnRight_ a b = sampleOnRight a (const identity <$> b)
 
-infixl 4 sampleOn_ as <|*
+infixl 4 sampleOnRight_ as <|*
 
 sampleOnLeft_ :: forall event a b. IsEvent event => event a -> event b -> event b
 sampleOnLeft_ a b = sampleOnLeft a (const <$> b)

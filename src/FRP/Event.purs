@@ -70,7 +70,7 @@ import Effect.Ref as ERef
 import Effect.Ref as Ref
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2)
-import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
+import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
 import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
 
@@ -154,7 +154,7 @@ instance alternativeEvent :: Alternative Event
 instance eventIsEvent :: Class.IsEvent Event where
   fold = fold
   keepLatest = keepLatest
-  sampleOn = sampleOn
+  sampleOnRight = sampleOnRight
   sampleOnLeft = sampleOnLeft
   fix = fix
 
@@ -224,8 +224,8 @@ sampleOnLeft (Event e1) (Event e2) =
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires.
-sampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
-sampleOn (Event e1) (Event e2) =
+sampleOnRight :: forall a b. Event a -> Event (a -> b) -> Event b
+sampleOnRight (Event e1) (Event e2) =
   Event $ mkEffectFn2 \b k -> do
     latest <- Ref.new Nothing
     c1 <-
