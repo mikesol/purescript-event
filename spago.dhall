@@ -14,6 +14,7 @@
   , "newtype"
   , "now"
   , "ordered-collections"
+  , "debug"
   , "partial"
   , "prelude"
   , "record"

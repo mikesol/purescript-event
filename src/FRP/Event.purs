@@ -65,6 +65,8 @@ import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
 import Data.Set (Set, singleton, delete)
+import Data.Tuple (Tuple(..), fst, snd)
+import Data.Tuple.Nested ((/\))
 import Effect (Effect, foreachE)
 import Effect.Ref as ERef
 import Effect.Ref as Ref
@@ -180,18 +182,15 @@ instance semiringEvent :: (Semiring a) => Semiring (Event a) where
 instance ringEvent :: (Ring a) => Ring (Event a) where
   sub = lift2 sub
 
+data FoldPass a b = EventAndInput a b | EventAndOutput a b | Stop a b
+
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
-fold f (Event e) b =
-  Event
-    ( mkEffectFn2 \tf k -> do
-        result <- (Ref.new b)
-        runEffectFn2 e tf
-          ( mkEffectFn1 \a -> do
-              res <- Ref.modify (f a) result
-              runEffectFn1 k res
-          )
-    )
+fold f e b = fix \i -> do
+  let
+    middle = sampleOn (i <|> pure b) (Tuple <$> e)
+
+  { input: snd <$> middle, output: map (\(x /\ y) -> f x y) (sampleOn middle (e $> identity)) }
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
