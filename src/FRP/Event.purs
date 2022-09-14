@@ -142,7 +142,7 @@ instance plusEvent :: Plus Event where
   empty = Event (mkEffectFn2 \_ _ -> pure (pure unit))
 
 instance applyEvent :: Apply Event where
-  apply a b = biSampleOn a ((#) <$> b)
+  apply = biSampleOn
 
 instance applicativeEvent :: Applicative Event where
   pure a = Event $ mkEffectFn2 \_ k -> do
@@ -207,39 +207,39 @@ filter p (Event e) =
     )
 
 
-sampleOnLeft :: forall a b. Event a -> Event (a -> b) -> Event b
+sampleOnLeft :: forall a b. Event (a -> b) -> Event a ->  Event b
 sampleOnLeft (Event e1) (Event e2) =
   Event $ mkEffectFn2 \b k -> do
     latest <- Ref.new Nothing
     c1 <-
-      runEffectFn2 e1 b $ mkEffectFn1 \a -> do
+      runEffectFn2 e1 b $ mkEffectFn1 \f -> do
         o <- Ref.read latest
-        for_ o (\f -> runEffectFn1 k (f a))
+        for_ o (\a -> runEffectFn1 k (f a))
     c2 <-
-      runEffectFn2 e2 b $ mkEffectFn1 \f -> do
-        Ref.write (Just f) latest
+      runEffectFn2 e2 b $ mkEffectFn1 \a -> do
+        Ref.write (Just a) latest
     pure do
       c1
       c2
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires.
-sampleOnRight :: forall a b. Event a -> Event (a -> b) -> Event b
+sampleOnRight :: forall a b. Event (a -> b) -> Event a ->  Event b
 sampleOnRight (Event e1) (Event e2) =
   Event $ mkEffectFn2 \b k -> do
     latest <- Ref.new Nothing
     c1 <-
-      runEffectFn2 e1 b $ mkEffectFn1 \a -> do
-        Ref.write (Just a) latest
+      runEffectFn2 e1 b $ mkEffectFn1 \f -> do
+        Ref.write (Just f) latest
     c2 <-
-      runEffectFn2 e2 b $ mkEffectFn1 \f -> do
+      runEffectFn2 e2 b $ mkEffectFn1 \a -> do
         o <- Ref.read latest
-        for_ o (\a -> runEffectFn1 k (f a))
+        for_ o (\f -> runEffectFn1 k (f a))
     pure do
       c1
       c2
 
-biSampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
+biSampleOn :: forall a b. Event (a -> b) -> Event a -> Event b
 biSampleOn (Event e1) (Event e2) =
   Event $ mkEffectFn2 \tf k -> do
     latest1 <- Ref.new Nothing
@@ -249,21 +249,21 @@ biSampleOn (Event e1) (Event e2) =
     -- First we capture the immediately emitted events
     capturing <- Ref.new true
     c1 <-
-      runEffectFn2 e1 tf $ mkEffectFn1 \a -> do
+      runEffectFn2 e1 tf $ mkEffectFn1 \f -> do
         o <- Ref.read capturing
-        if o then void $ liftST $ STArray.push a replay1
+        if o then void $ liftST $ STArray.push f replay1
         else do
-          Ref.write (Just a) latest1
+          Ref.write (Just f) latest1
           res <- Ref.read latest2
-          for_ res (\f -> runEffectFn1 k (f a))
-    c2 <-
-      runEffectFn2 e2 tf $ mkEffectFn1 \f -> do
-        o <- Ref.read capturing
-        if o then void $ liftST $ STArray.push f replay2
-        else do
-          Ref.write (Just f) latest2
-          res <- Ref.read latest1
           for_ res (\a -> runEffectFn1 k (f a))
+    c2 <-
+      runEffectFn2 e2 tf $ mkEffectFn1 \a -> do
+        o <- Ref.read capturing
+        if o then void $ liftST $ STArray.push a replay2
+        else do
+          Ref.write (Just a) latest2
+          res <- Ref.read latest1
+          for_ res (\f -> runEffectFn1 k (f a))
     -- And then we replay them according to the `Applicative Array` instance
     _ <- Ref.write false capturing
     samples1 <- liftST $ STArray.freeze replay1
@@ -271,11 +271,11 @@ biSampleOn (Event e1) (Event e2) =
     case samples1 of
       -- if there are no samples in samples1, we still want to write samples2
       [] -> Ref.write (Array.last samples2) latest2
-      _ -> foreachE samples1 \a -> do
+      _ -> foreachE samples1 \f -> do
         -- We write the current values as we go through -- this would only matter for recursive events
-        Ref.write (Just a) latest1
-        foreachE samples2 \f -> do
-          Ref.write (Just f) latest2
+        Ref.write (Just f) latest1
+        foreachE samples2 \a -> do
+          Ref.write (Just a) latest2
           runEffectFn1 k (f a)
     -- Free the samples so they can be GCed
     _ <- liftST $ STArray.splice 0 (length samples1) [] replay1

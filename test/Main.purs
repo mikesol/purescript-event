@@ -26,7 +26,7 @@ import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
 import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOnRight, subscribe)
 import FRP.Event as Event
-import FRP.Event.Class (fold)
+import FRP.Event.Class (fold, sampleOnRightOp)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (describe, it)
@@ -185,7 +185,7 @@ main = do
                   let foldy = fold (\b a -> a + b) 0 add3
                   let add4 = map (add 4) add3
                   let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  sampleOnRight add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                  sampleOnRightOp add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
               u <- subscribe event' \i ->
                 liftST $ void $ STRef.modify (Array.cons i) r
               push 0

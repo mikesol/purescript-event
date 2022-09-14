@@ -48,20 +48,20 @@ class (Alternative event, Filterable event) <= IsEvent event where
   -- Temporal order for fold
   fold :: forall a b. (b -> a -> b) -> b -> event a -> event b
   keepLatest :: forall a. event (event a) -> event a
-  sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
-  sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
+  sampleOnRight :: forall a b. event (a -> b) -> event a -> event b
+  sampleOnLeft :: forall a b. event (a -> b) -> event a -> event b
   fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
 
 infixl 4 sampleOnRight as <|**>
 infixl 4 sampleOnLeft as <**|>
 
-sampleOnRightOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
-sampleOnRightOp ef ea = sampleOnRight ef ((#) <$> ea)
+sampleOnRightOp :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
+sampleOnRightOp ef ea = sampleOnRight ((#) <$> ef) ea
 
 infixl 4 sampleOnRightOp as <|*>
 
 sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
-sampleOnLeftOp ef ea = sampleOnLeft ef ((#) <$> ea)
+sampleOnLeftOp ef ea = sampleOnLeft (($) <$> ef) ea
 
 infixl 4 sampleOnLeftOp as <*|>
 
@@ -100,12 +100,12 @@ mapAccum f acc xs = filterMap snd
 -- | at the times when the second event fires, ignoring the values produced by
 -- | the second event.
 sampleOnRight_ :: forall event a b. IsEvent event => event a -> event b -> event a
-sampleOnRight_ a b = sampleOnRight a (const identity <$> b)
+sampleOnRight_ a b = sampleOnRight (const <$> a) b
 
 infixl 4 sampleOnRight_ as <|*
 
 sampleOnLeft_ :: forall event a b. IsEvent event => event a -> event b -> event b
-sampleOnLeft_ a b = sampleOnLeft a (const <$> b)
+sampleOnLeft_ a b = sampleOnLeft (const identity <$> a) b
 
 infixl 4 sampleOnLeft_ as *|>
 
@@ -127,4 +127,4 @@ gateBy
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
   <$> (pure Nothing <|> Just <$> sampled)
-  <|*> sampler
+  <|**> sampler
