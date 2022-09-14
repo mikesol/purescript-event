@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
-import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOnRight, subscribe)
+import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, sampleOnRightOp)
 import FRP.Event.Time (debounce, interval)
