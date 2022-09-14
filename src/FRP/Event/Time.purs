@@ -42,11 +42,8 @@ debounceWith
   -> Event a
   -> Event b
 debounceWith process event
-  = map _.value $ process $ fix \allowed ->
+  = map _.value $ fix \processed ->
       let
-        processed :: Event { period :: Milliseconds, value :: b }
-        processed = process allowed
-
         expiries :: Event Instant
         expiries =
           map (\{ time, value } -> fromMaybe time (instant (unInstant time <> value)))
@@ -58,7 +55,7 @@ debounceWith process event
         unblocked :: Event { time :: Instant, value :: a }
         unblocked = gateBy comparison expiries stamped
       in
-        map _.value unblocked
+        process (map _.value unblocked)
   where
     stamped :: Event { time :: Instant, value :: a }
     stamped = withTime event

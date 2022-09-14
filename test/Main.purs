@@ -9,7 +9,7 @@ import Control.Monad.ST.Global (Global, toEffect)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
 import Control.Plus (empty)
-import Data.Array (replicate)
+import Data.Array (length, replicate)
 import Data.Array as Array
 import Data.Filterable (filter)
 import Data.Foldable (sequence_)
@@ -474,6 +474,27 @@ main = do
                   usu
                   STRef.read rff
               oo `shouldEqual` [ 333, 42 ]
+
+          describe "Debounce" do
+            it "debounces" do
+              let
+                f emitSecond = do
+                  { event, push } <- liftEffect $ Event.create
+                  rf <- liftEffect $ Ref.new []
+                  unsub <- liftEffect $ Event.subscribe (debounce (Milliseconds 500.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
+                  liftEffect $ push unit
+                  when emitSecond do
+                    liftEffect $ push unit
+                  delay $ Milliseconds 250.0
+                  liftEffect $ push unit
+                  delay $ Milliseconds 300.0
+                  liftEffect $ push unit
+                  liftEffect $ push unit
+                  o <- liftEffect $ Ref.read rf
+                  length o `shouldEqual` 2
+                  liftEffect unsub
+              f true
+              f false
 
           describe "Backdoor" do
             it "should work" $ liftEffect do
