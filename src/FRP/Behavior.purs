@@ -141,17 +141,19 @@ integral
   -> ABehavior event a
   -> ABehavior event a
 integral g initial t b =
-    ABehavior \e ->
-      let x = sample b (e $> identity)
-          y = withLast (sampleBy Tuple t x)
-          z = fold approx y initial
-      in sampleOn z e
+  ABehavior \e ->
+    let
+      x = sample b (e $> identity)
+      y = withLast (sampleBy Tuple t x)
+      z = fold approx y initial
+    in
+      sampleOn z e
   where
-    approx { last: Nothing } s = s
-    approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } s = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
+  approx { last: Nothing } s = s
+  approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } s = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
 
-    two :: t
-    two = one + one
+  two :: t
+  two = one + one
 
 -- | Integrate with respect to some measure of time.
 -- |
@@ -186,14 +188,16 @@ derivative
   -> ABehavior event a
   -> ABehavior event a
 derivative g t b =
-    ABehavior \e ->
-      let x = sample b (e $> identity)
-          y = withLast (sampleBy Tuple t x)
-          z = map approx y
-      in sampleOn z e
+  ABehavior \e ->
+    let
+      x = sample b (e $> identity)
+      y = withLast (sampleBy Tuple t x)
+      z = map approx y
+    in
+      sampleOn z e
   where
-    approx { last: Nothing } = zero
-    approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
+  approx { last: Nothing } = zero
+  approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
 
 -- | Differentiate with respect to some measure of time.
 -- |
@@ -212,9 +216,14 @@ derivative' = derivative (_ $ identity)
 fixB :: forall event a. IsEvent event => a -> (ABehavior event a -> ABehavior event a) -> ABehavior event a
 fixB a f =
   behavior \s ->
-    fix \event ->
-      let b = f (step a event)
-      in { input: sample_ b s, output: sampleOn event s }
+    sampleOn
+      ( fix \event ->
+          let
+            b = f (step a event)
+          in
+            sample_ b s
+      )
+      s
 
 -- | Solve a first order differential equation of the form
 -- |
@@ -279,8 +288,9 @@ solve2
 solve2 g a0 da0 t f =
   fixB a0 \b ->
     integral g a0 t
-      (fixB da0 \db ->
-        integral g da0 t (f b db))
+      ( fixB da0 \db ->
+          integral g da0 t (f b db)
+      )
 
 -- | Solve a second order differential equation.
 -- |

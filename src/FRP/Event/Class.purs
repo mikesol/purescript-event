@@ -37,7 +37,7 @@ class (Alternative event, Filterable event) <= IsEvent event where
   fold :: forall a b. (a -> b -> b) -> event a -> b -> event b
   keepLatest :: forall a. event (event a) -> event a
   sampleOn :: forall a b. event a -> event (a -> b) -> event b
-  fix :: forall i o. (event i -> { input :: event i, output :: event o }) -> event o
+  fix :: forall i. (event i -> event i) -> event i
 
 -- | Count the number of events received.
 count :: forall event a. IsEvent event => event a -> event Int

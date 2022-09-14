@@ -42,7 +42,7 @@ debounceWith
   -> Event a
   -> Event b
 debounceWith process event
-  = fix \allowed ->
+  = map _.value $ process $ fix \allowed ->
       let
         processed :: Event { period :: Milliseconds, value :: b }
         processed = process allowed
@@ -58,9 +58,7 @@ debounceWith process event
         unblocked :: Event { time :: Instant, value :: a }
         unblocked = gateBy comparison expiries stamped
       in
-        { input:  map _.value unblocked
-        , output: map _.value processed
-        }
+        map _.value unblocked
   where
     stamped :: Event { time :: Instant, value :: a }
     stamped = withTime event

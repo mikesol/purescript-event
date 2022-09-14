@@ -217,9 +217,7 @@ instance isEventSemantic :: Bounded time => IsEvent (Semantic time) where
     go (Tuple _ (Semantic xs) : Nil) = xs
     go (Tuple _ (Semantic xs) : es'@(Tuple tNext _ : _)) = filter ((_ < tNext) <<< fst) xs <> go es'
 
-  fix :: forall i o
-       . (Semantic time i -> { input :: Semantic time i
-                             , output :: Semantic time o
-                             })
-      -> Semantic time o
+  fix :: forall i
+       . (Semantic time i -> Semantic time i)
+      -> Semantic time i
   fix _ = unsafeCrashWith "FRP.Event.Semantic: fix is not yet implemented"

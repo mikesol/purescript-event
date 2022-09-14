@@ -184,11 +184,7 @@ data FoldPass a b = EventAndInput a b | EventAndOutput a b | Stop a b
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
-fold f e b = fix \output -> do
-  let
-    input = sampleOn (output <|> pure b) (f <$> e)
-
-  { input, output }
+fold f e b = fix \i -> sampleOn (i <|> pure b) (f <$> e)
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
@@ -285,13 +281,14 @@ keepLatest (Event e) =
       cancelOuter
 
 -- | Compute a fixed point
-fix :: forall i o. (Event i -> { input :: Event i, output :: Event o }) -> Event o
+fix :: forall i. (Event i -> Event i) -> Event i
 fix f =
   Event $ mkEffectFn2 \tf k -> do
     { event, push } <- create'
-    let { input: Event input, output: Event output } = f event
-    c1 <- runEffectFn2 input tf push
-    c2 <- runEffectFn2 output tf k
+    let Event e0 = f event
+    let Event e1 = event
+    c1 <- runEffectFn2 e0 tf push
+    c2 <- runEffectFn2 e1 tf k
     pure do
       c1
       c2
