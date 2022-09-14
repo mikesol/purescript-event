@@ -152,7 +152,6 @@ instance applicativeEvent :: Applicative Event where
 instance alternativeEvent :: Alternative Event
 
 instance eventIsEvent :: Class.IsEvent Event where
-  fold = fold
   keepLatest = keepLatest
   sampleOn = sampleOn
   fix = fix
@@ -179,12 +178,6 @@ instance semiringEvent :: (Semiring a) => Semiring (Event a) where
 
 instance ringEvent :: (Ring a) => Ring (Event a) where
   sub = lift2 sub
-
-data FoldPass a b = EventAndInput a b | EventAndOutput a b | Stop a b
-
--- | Fold over values received from some `Event`, creating a new `Event`.
-fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
-fold f e b = fix \i -> sampleOn (i <|> pure b) (f <$> e)
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b

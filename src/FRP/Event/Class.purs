@@ -34,7 +34,6 @@ import Data.Tuple (Tuple(..), snd)
 -- | inputs.
 -- | - `bang`: A one-shot event that happens NOW.
 class (Alternative event, Filterable event) <= IsEvent event where
-  fold :: forall a b. (a -> b -> b) -> event a -> b -> event b
   keepLatest :: forall a. event (event a) -> event a
   sampleOn :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i. (event i -> event i) -> event i
@@ -94,3 +93,7 @@ gateBy
 gateBy f sampled = compact
   <<< sampleOn (pure Nothing <|> Just <$> sampled)
   <<< map \x p -> if f p x then Just x else Nothing
+
+-- | Fold over values received from some `Event`, creating a new `Event`.
+fold :: forall event a b. IsEvent event => (a -> b -> b) -> event a -> b -> event b
+fold f e b = fix \i -> sampleOn (i <|> pure b) (f <$> e)
