@@ -1,10 +1,13 @@
-module FRP.Event.VBus (V, vbus, class VBusStation, VBusT, VBus(..), vb, vbackdoor, VBackdoor) where
+module FRP.Event.VBus (V, vbus, class VBus, VbusT, Vbus(..), vb, vbackdoor, VBackdoor) where
 
 import Prelude
 
-import Control.Monad.ST.Class (class MonadST)
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Global (Global)
 import Data.Symbol (class IsSymbol)
-import FRP.Event (AnEvent, makeEvent)
+import Data.Tuple.Nested (type (/\), (/\))
+import Effect (Effect)
+import FRP.Event (Event, create, makeLemmingEvent)
 import Prim.Row as R
 import Prim.RowList (class RowToList, RowList)
 import Prim.RowList as RL
@@ -12,14 +15,12 @@ import Record as Record
 import Type.Proxy (Proxy(..))
 import Unsafe.Coerce (unsafeCoerce)
 
-class VBusStation :: RowList Type -> Row Type -> Row Type -> Row Type -> Constraint
-class VBusStation ri p e u | ri -> p e u where
-  vb :: Proxy ri -> Proxy p -> Proxy e -> V u
+class VBus :: RowList Type -> Row Type -> Row Type -> Constraint
+class VBus ri p e | ri -> p e where
+  vb :: Proxy ri -> ST Global ({ | p } /\ { | e })
 
-instance vbusNil :: VBusStation RL.Nil () () () where
-  vb _ _ _ = (unsafeCoerce :: {} -> V ()) {}
-
-foreign import unsafeMarkAsVbus :: forall a. a -> a
+instance vbusNil :: VBus RL.Nil () () where
+  vb _ = pure ({} /\ {})
 
 data V (bus :: Row Type)
 
@@ -28,96 +29,65 @@ instance vbusCons1 ::
   , RowToList i irl
   , R.Cons key { | p'' } p' p
   , R.Cons key { | e'' } e' e
-  , VBusStation irl p'' e'' i
-  , VBusStation rest p' e' u'
-  , R.Cons key (V i) u' u
+  , VBus irl p'' e''
+  , VBus rest p' e'
   , R.Lacks key p'
   , R.Lacks key e'
-  , R.Lacks key u'
   ) =>
-  VBusStation (RL.Cons key (V i) rest) p e u where
-  vb _ _ _ = (unsafeCoerce :: { | u } -> V u) $ Record.insert
-    (Proxy :: _ key)
-    ( unsafeMarkAsVbus
-        ( vb (Proxy :: _ irl)
-            (Proxy :: _ p'')
-            (Proxy :: _ e'')
-        )
-    )
-    ( (unsafeCoerce :: V u' -> { | u' }) $
-        ( vb (Proxy :: _ rest)
-            (Proxy :: _ p')
-            (Proxy :: _ e')
-        )
-    )
+  VBus (RL.Cons key (V i) rest) p e where
+  vb _ = do
+    p /\ e <- vb (Proxy :: _ rest)
+    p' /\ e' <- vb (Proxy :: _ irl)
+    pure (Record.insert (Proxy :: _ key) p' p /\ Record.insert (Proxy :: _ key) e' e)
 
 else instance vbusCons2 ::
   ( IsSymbol key
-  , R.Cons key (z -> m Unit) p' p
-  , R.Cons key (AnEvent m z) e' e
-  , VBusStation rest p' e' u'
-  , R.Cons key z u' u
+  , R.Cons key (z -> Effect Unit) p' p
+  , R.Cons key (Event z) e' e
+  , VBus rest p' e'
   , R.Lacks key p'
   , R.Lacks key e'
-  , R.Lacks key u'
   ) =>
-  VBusStation (RL.Cons key z rest) p e u where
-  vb _ _ _ = (unsafeCoerce :: { | u } -> V u) $ Record.insert
-    (Proxy :: _ key)
-    ((unsafeCoerce :: Unit -> z) unit)
-    ( (unsafeCoerce :: V u' -> { | u' }) $
-        ( vb (Proxy :: _ rest)
-            (Proxy :: _ p')
-            (Proxy :: _ e')
-        )
-    )
+  VBus (RL.Cons key z rest) p e where
+  vb _ = do
+    p /\ e <- vb (Proxy :: _ rest)
+    { event, push } <- (unsafeCoerce :: Effect _ -> ST Global _) create
+    pure (Record.insert (Proxy :: _ key) push p /\ Record.insert (Proxy :: _ key) event e)
 
-data S
+vbus :: VbusT
+vbus i = (\(Vbus nt) -> nt) vbackdoor.vbus i
 
-foreign import unsafeDestroyS :: forall m. S -> m Unit
-
-foreign import unsafePE
-  :: forall m u p e
-   . V u
-  -> m { p :: { | p }, e :: { | e }, s :: S }
-
-vbus :: VBusT
-vbus i = (\(VBus nt) -> nt) vbackdoor.vbus i
-
-type VBusT =
-  forall proxy ri i s m p e o u
+type VbusT =
+  forall proxy ri i p e o
    . RowToList i ri
-  => MonadST s m
-  => VBusStation ri p e u
+  => VBus ri p e
   => proxy (V i)
   -> ({ | p } -> { | e } -> o)
-  -> AnEvent m o
+  -> Event o
 
-newtype VBus = VBus VBusT
+newtype Vbus = Vbus VbusT
 
-type VBackdoor = { vbus :: VBus }
+type VBackdoor = { vbus :: Vbus }
 
 vbackdoor :: VBackdoor
 vbackdoor =
   { vbus:
       let
         vbus__
-          :: forall proxy ri i s m p e o u
+          :: forall proxy ri i p e o
            . RowToList i ri
-          => MonadST s m
-          => VBusStation ri p e u
+          => VBus ri p e
           => proxy (V i)
           -> ({ | p } -> { | e } -> o)
-          -> AnEvent m o
-        vbus__ _ f = makeEvent \k -> do
-          upe <- unsafePE vbd
-          k (f upe.p upe.e)
-          pure (unsafeDestroyS upe.s)
-          where
-          vbd = vb (Proxy :: _ ri) (Proxy :: _ p) (Proxy :: _ e)
+          -> Event o
+        vbus__ _ f = makeLemmingEvent \_ k -> do
+          e /\ p <- vb (Proxy :: _ ri)
+          k (f e p)
+          -- is any unsubscribe needed here?
+          pure (pure unit)
 
-        vbus_ :: VBus
-        vbus_ = VBus vbus__
+        vbus_ :: Vbus
+        vbus_ = Vbus vbus__
       in
         vbus_
   }

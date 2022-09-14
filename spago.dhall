@@ -16,7 +16,6 @@
   , "ordered-collections"
   , "partial"
   , "prelude"
-  , "profunctor"
   , "record"
   , "refs"
   , "st"

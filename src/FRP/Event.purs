@@ -1,69 +1,77 @@
 module FRP.Event
-  ( AnEvent
-  , Event
-  , AnEventIO
-  , EventIO
-  , backdoor
-  , Backdoor(..)
-  , create
-  , CreateT
-  , Create(..)
-  , makeEvent
-  , MakeEventT
-  , MakeEvent(..)
-  , subscribe
-  , SubscribeT
-  , Subscribe(..)
-  , bus
-  , BusT
+  ( Backdoor(..)
   , Bus(..)
-  , memoize
-  , MemoizeT
-  , Memoize(..)
-  , hot
-  , HotT
-  , Hot(..)
-  , mailboxed
-  , MailboxedT
-  , Mailboxed(..)
-  , delay
-  , DelayT
+  , BusT
+  , Create(..)
+  , CreatePure(..)
+  , CreatePureT
+  , CreateT
   , Delay(..)
-  , ToEvent
-  , toEvent
-  , FromEvent
-  , fromEvent
+  , DelayT
+  , Event
+  , EventIO
+  , Hot(..)
+  , HotT
+  , Mailboxed(..)
+  , MailboxedT
+  , MakeEvent(..)
+  , MakeEventT
+  , MakeLemmingEvent(..)
+  , MakeLemmingEventT
+  , MakePureEvent(..)
+  , MakePureEventT
+  , Memoize(..)
+  , MemoizeT
+  , PureEventIO
+  , Subscribe(..)
+  , SubscribePure(..)
+  , SubscribePureT
+  , SubscribeT
+  , backdoor
+  , burning
+  , bus
+  , create
+  , createPure
+  , delay
+  , hot
+  , mailboxed
+  , makeEvent
+  , makeLemmingEvent
+  , makePureEvent
+  , memoize
   , module Class
+  , subscribe
+  , subscribePure
   ) where
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
-import Control.Monad.ST.Class (class MonadST, liftST)
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Internal (ST)
-import Control.Monad.ST.Internal as Ref
 import Data.Array (deleteBy, length)
+import Data.Array as Array
 import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable as Filterable
-import Data.Foldable (for_, sequence_, traverse_)
+import Data.Foldable (for_)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
-import Data.Monoid.Always (class Always, always)
-import Data.Monoid.Endo (Endo(..))
-import Data.Newtype (unwrap)
-import Data.Profunctor (dimap)
 import Data.Set (Set, singleton, delete)
-import Effect (Effect)
+import Effect (Effect, foreachE)
 import Effect.Ref as ERef
+import Effect.Ref as Ref
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
+import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOn, sampleOn_, withLast) as Class
+import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
 
 -- | An `Event` represents a collection of discrete occurrences with associated
@@ -77,15 +85,14 @@ import Unsafe.Reference (unsafeRefEq)
 -- | combined using the various functions and instances provided in this module.
 -- |
 -- | Events are consumed by providing a callback using the `subscribe` function.
-newtype AnEvent m a = AnEvent ((a -> m Unit) -> m (m Unit))
-type Event a = AnEvent Effect a
+newtype Event a = Event (EffectFn2 Boolean (EffectFn1 a Unit) (Effect Unit))
 
-type STEvent a = AnEvent (ST Global) a
+-- boolean :: t = pure,false = impure
 
-instance functorEvent :: Functor (AnEvent m) where
-  map f (AnEvent e) = AnEvent \k -> e (k <<< f)
+instance functorEvent :: Functor Event where
+  map f (Event e) = Event (mkEffectFn2 (\b k -> runEffectFn2 e b (mkEffectFn1 (\a -> runEffectFn1 k (f a)))))
 
-instance compactableEvent :: Applicative m => Compactable (AnEvent m) where
+instance compactableEvent :: Compactable Event where
   compact = filter identity
   separate xs =
     { left:
@@ -104,7 +111,7 @@ instance compactableEvent :: Applicative m => Compactable (AnEvent m) where
           xs
     }
 
-filter' :: forall m a. Applicative m => (a → Boolean) → AnEvent m a → AnEvent m a
+filter' :: forall a. (a → Boolean) → Event a → Event a
 filter' f =
   filter
     ( \a -> case f a of
@@ -112,7 +119,7 @@ filter' f =
         false -> Nothing
     )
 
-instance filterableEvent :: Applicative m => Filterable.Filterable (AnEvent m) where
+instance filterableEvent :: Filterable.Filterable Event where
   filter = filter'
   filterMap = filter
   partition p xs = { yes: filter' p xs, no: filter' (not <<< p) xs }
@@ -121,38 +128,43 @@ instance filterableEvent :: Applicative m => Filterable.Filterable (AnEvent m) w
     , right: Filterable.filterMap (hush <<< f) xs
     }
 
-instance altEvent :: Applicative m => Alt (AnEvent m) where
-  alt (AnEvent f) (AnEvent g) =
-    AnEvent \k -> ado
-      c1 <- f k
-      c2 <- g k
-      in (c1 *> c2)
+instance altEvent :: Alt Event where
+  alt (Event f) (Event g) =
+    Event $ mkEffectFn2 \tf k -> ado
+      c1 <- runEffectFn2 f tf k
+      c2 <- runEffectFn2 g tf k
+      in
+        do
+          c1
+          c2
 
-instance plusEvent :: Applicative m => Plus (AnEvent m) where
-  empty = AnEvent \_ -> pure (pure unit)
+instance plusEvent :: Plus Event where
+  empty = Event (mkEffectFn2 \_ _ -> pure (pure unit))
 
-instance applyEvent :: MonadST s m => Apply (AnEvent m) where
+instance applyEvent :: Apply Event where
   apply a b = biSampleOn a ((#) <$> b)
 
-instance applicativeEvent :: MonadST s m => Applicative (AnEvent m) where
-  pure a = AnEvent \k -> pure unit <$ k a
+instance applicativeEvent :: Applicative Event where
+  pure a = Event $ mkEffectFn2 \_ k -> do
+    runEffectFn1 k a
+    pure (pure unit)
 
-instance alternativeEvent :: MonadST s m => Alternative (AnEvent m)
+instance alternativeEvent :: Alternative Event
 
-instance eventIsEvent :: MonadST s m => Class.IsEvent (AnEvent m) where
+instance eventIsEvent :: Class.IsEvent Event where
   fold = fold
   keepLatest = keepLatest
   sampleOn = sampleOn
   sampleOnLeft = sampleOnLeft
   fix = fix
 
-instance semigroupEvent :: (Semigroup a, MonadST s m) => Semigroup (AnEvent m a) where
+instance semigroupEvent :: (Semigroup a) => Semigroup (Event a) where
   append = lift2 append
 
-instance monoidEvent :: (Monoid a, MonadST s m) => Monoid (AnEvent m a) where
+instance monoidEvent :: (Monoid a) => Monoid (Event a) where
   mempty = pure mempty
 
-instance heytingAlgebraEvent :: (HeytingAlgebra a, MonadST s m) => HeytingAlgebra (AnEvent m a) where
+instance heytingAlgebraEvent :: (HeytingAlgebra a) => HeytingAlgebra (Event a) where
   tt = pure tt
   ff = pure ff
   not = map not
@@ -160,118 +172,149 @@ instance heytingAlgebraEvent :: (HeytingAlgebra a, MonadST s m) => HeytingAlgebr
   conj = lift2 conj
   disj = lift2 disj
 
-instance semiringEvent :: (Semiring a, MonadST s m) => Semiring (AnEvent m a) where
+instance semiringEvent :: (Semiring a) => Semiring (Event a) where
   zero = pure zero
   one = pure one
   add = lift2 add
   mul = lift2 mul
 
-instance ringEvent :: (Ring a, MonadST s m) => Ring (AnEvent m a) where
+
+instance ringEvent :: (Ring a) => Ring (Event a) where
   sub = lift2 sub
 
--- | Fold over values received from some `Event`, creating a new `Event`.
-fold :: forall m s a b. MonadST s m => (b -> a -> b) -> b -> AnEvent m a -> AnEvent m b
-fold f b (AnEvent e) =
-  AnEvent \k -> do
-    result <- liftST (Ref.new b)
-    e \a -> liftST (Ref.modify (flip f a) result) >>= k
+fold :: forall a b. (b -> a -> b) -> b -> Event a -> Event b
+fold f b (Event e) =
+  Event
+    ( mkEffectFn2 \tf k -> do
+        result <- (Ref.new b)
+        runEffectFn2 e tf
+          ( mkEffectFn1 \a -> do
+              res <- Ref.modify (flip f a) result
+              runEffectFn1 k res
+          )
+    )
 
 -- | Create an `Event` which only fires when a predicate holds.
-filter :: forall m a b. Applicative m => (a -> Maybe b) -> AnEvent m a -> AnEvent m b
-filter p (AnEvent e) =
-  AnEvent \k ->
-    e \a -> case p a of
-      Just y -> k y
-      Nothing -> pure unit
+filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
+filter p (Event e) =
+  Event
+    ( mkEffectFn2 \tf k ->
+        runEffectFn2 e tf
+          ( mkEffectFn1 \a -> case p a of
+              Just y -> runEffectFn1 k y
+              Nothing -> pure unit
+          )
+    )
+
+
+sampleOnLeft :: forall a b. Event a -> Event (a -> b) -> Event b
+sampleOnLeft (AnEvent e1) (AnEvent e2) =
+  Event $ mkEffectFn2 \b k -> do
+    latest <- Ref.new Nothing
+    c1 <-
+      runEffectFn2 e1 b $ mkEffectFn1 \a -> do
+        o <- Ref.read latest
+        for_ o (\f -> runEffectFn1 k (f a))
+    c2 <-
+      runEffectFn2 e2 b $ mkEffectFn1 \f -> do
+        Ref.write (Just f) latest
+    pure do
+      c1
+      c2
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires.
-sampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
-sampleOn (AnEvent e1) (AnEvent e2) =
-  AnEvent \k -> do
-    latest <- liftST $ Ref.new Nothing
+sampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
+sampleOn (Event e1) (Event e2) =
+  Event $ mkEffectFn2 \b k -> do
+    latest <- Ref.new Nothing
     c1 <-
-      e1 \a -> do
-        liftST $ void $ Ref.write (Just a) latest
+      runEffectFn2 e1 b $ mkEffectFn1 \a -> do
+        Ref.write (Just a) latest
     c2 <-
-      e2 \f -> do
-        (liftST $ Ref.read latest) >>= traverse_ (k <<< f)
-    pure (c1 *> c2)
+      runEffectFn2 e2 b $ mkEffectFn1 \f -> do
+        o <- Ref.read latest
+        for_ o (\a -> runEffectFn1 k (f a))
+    pure do
+      c1
+      c2
 
-sampleOnLeft :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
-sampleOnLeft (AnEvent e1) (AnEvent e2) =
-  AnEvent \k -> do
-    latest <- liftST $ Ref.new Nothing
-    c1 <-
-      e1 \a -> do
-        (liftST $ Ref.read latest) >>= traverse_ \f -> k (f a)
-    c2 <-
-      e2 \f -> do
-        liftST $ void $ Ref.write (Just f) latest
-    pure (c1 *> c2)
-
-biSampleOn :: forall m s a b. MonadST s m => Applicative m => AnEvent m a -> AnEvent m (a -> b) -> AnEvent m b
-biSampleOn (AnEvent e1) (AnEvent e2) =
-  AnEvent \k -> do
-    latest1 <- liftST $ Ref.new Nothing
-    replay1 <- liftST $ STArray.new
-    latest2 <- liftST $ Ref.new Nothing
-    replay2 <- liftST $ STArray.new
+biSampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
+biSampleOn (Event e1) (Event e2) =
+  Event $ mkEffectFn2 \tf k -> do
+    latest1 <- Ref.new Nothing
+    replay1 <- liftST STArray.new
+    latest2 <- Ref.new Nothing
+    replay2 <- liftST STArray.new
     -- First we capture the immediately emitted events
-    capturing <- liftST $ Ref.new true
+    capturing <- Ref.new true
     c1 <-
-      e1 \a -> do
-        (liftST $ Ref.read capturing) >>=
-          if _ then liftST $ void $ STArray.push a replay1
-          else do
-            _ <- liftST $ Ref.write (Just a) latest1
-            (liftST $ Ref.read latest2) >>= traverse_ (\f -> k (f a))
+      runEffectFn2 e1 tf $ mkEffectFn1 \a -> do
+        o <- Ref.read capturing
+        if o then void $ liftST $ STArray.push a replay1
+        else do
+          Ref.write (Just a) latest1
+          res <- Ref.read latest2
+          for_ res (\f -> runEffectFn1 k (f a))
     c2 <-
-      e2 \f -> do
-        (liftST $ Ref.read capturing) >>=
-          if _ then liftST $ void $ STArray.push f replay2
-          else do
-            _ <- liftST $ Ref.write (Just f) latest2
-            (liftST $ Ref.read latest1) >>= traverse_ (\a -> k (f a))
+      runEffectFn2 e2 tf $ mkEffectFn1 \f -> do
+        o <- Ref.read capturing
+        if o then void $ liftST $ STArray.push f replay2
+        else do
+          Ref.write (Just f) latest2
+          res <- Ref.read latest1
+          for_ res (\a -> runEffectFn1 k (f a))
     -- And then we replay them according to the `Applicative Array` instance
-    _ <- liftST $ Ref.write false capturing
+    _ <- Ref.write false capturing
     samples1 <- liftST $ STArray.freeze replay1
     samples2 <- liftST $ STArray.freeze replay2
-    for_ samples1 \a -> do
-      -- We write the current values as we go through -- this would only matter for recursive events
-      _ <- liftST $ Ref.write (Just a) latest1
-      for_ samples2 \f -> do
-        _ <- liftST $ Ref.write (Just f) latest2
-        k (f a)
+    case samples1 of
+      -- if there are no samples in samples1, we still want to write samples2
+      [] -> Ref.write (Array.last samples2) latest2
+      _ -> foreachE samples1 \a -> do
+        -- We write the current values as we go through -- this would only matter for recursive events
+        Ref.write (Just a) latest1
+        foreachE samples2 \f -> do
+          Ref.write (Just f) latest2
+          runEffectFn1 k (f a)
     -- Free the samples so they can be GCed
     _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
     _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
-    pure (c1 *> c2)
+    pure do
+      c1
+      c2
 
 -- | Flatten a nested `Event`, reporting values only from the most recent
 -- | inner `Event`.
-keepLatest :: forall m s a. MonadST s m => AnEvent m (AnEvent m a) -> AnEvent m a
-keepLatest (AnEvent e) =
-  AnEvent \k -> do
-    cancelInner <- liftST $ Ref.new Nothing
+keepLatest :: forall a. Event (Event a) -> Event a
+keepLatest (Event e) =
+  Event $ mkEffectFn2 \tf k -> do
+    cancelInner <- Ref.new (pure unit)
     cancelOuter <-
-      e \inner -> do
-        (liftST $ Ref.read cancelInner) >>= sequence_
-        c <- subscribe inner k
-        liftST $ void $ Ref.write (Just c) cancelInner
+      runEffectFn2 e tf $ mkEffectFn1 \(Event inner) -> do
+        -- in rare cases, cancelOuter may itself provoke an emission
+        -- of the outer event, in which case this function would run
+        -- to avoid that, we use a `safeToIgnore` flag
+        ci <- Ref.read cancelInner
+        ci
+        c <- runEffectFn2 inner tf k
+        Ref.write c cancelInner
     pure do
-      (liftST $ Ref.read cancelInner) >>= sequence_
+      ci <- Ref.read cancelInner
+      ci
       cancelOuter
 
 -- | Compute a fixed point
-fix :: forall m s i o. MonadST s m => Monad m => (AnEvent m i -> { input :: AnEvent m i, output :: AnEvent m o }) -> AnEvent m o
+fix :: forall i o. (Event i -> { input :: Event i, output :: Event o }) -> Event o
 fix f =
-  AnEvent \k -> do
-    { event, push } <- create
-    let { input, output } = f event
-    c1 <- subscribe input push
-    c2 <- subscribe output k
-    pure (c1 *> c2)
+  Event $ mkEffectFn2 \tf k -> do
+    { event, push } <- create'
+    let { input: Event input, output: Event output } = f event
+    c1 <- runEffectFn2 input tf push
+    c2 <- runEffectFn2 output tf k
+    pure do
+      c1
+      c2
 
 -- | Subscribe to an `Event` by providing a callback.
 -- |
@@ -280,17 +323,28 @@ subscribe :: SubscribeT
 subscribe i = (\(Subscribe nt) -> nt) backdoor.subscribe i
 
 type SubscribeT =
-  forall m a
-   . AnEvent m a
-  -> (a -> m Unit)
-  -> m (m Unit)
+  forall a
+   . Event a
+  -> (a -> Effect Unit)
+  -> Effect (Effect Unit)
 
 newtype Subscribe = Subscribe SubscribeT
 
+subscribePure :: SubscribePureT
+subscribePure i = (\(SubscribePure nt) -> nt) backdoor.subscribePure i
+
+type SubscribePureT =
+  forall r a
+   . Event a
+  -> (a -> ST r Unit)
+  -> ST r (ST r Unit)
+
+newtype SubscribePure = SubscribePure SubscribePureT
+
 type MakeEventT =
-  forall m a
-   . ((a -> m Unit) -> m (m Unit))
-  -> AnEvent m a
+  forall a
+   . ((a -> Effect Unit) -> Effect (Effect Unit))
+  -> Event a
 
 newtype MakeEvent = MakeEvent MakeEventT
 
@@ -302,14 +356,41 @@ newtype MakeEvent = MakeEvent MakeEventT
 makeEvent :: MakeEventT
 makeEvent i = (\(MakeEvent nt) -> nt) backdoor.makeEvent i
 
+--
+type MakePureEventT =
+  forall a
+   . ((a -> ST Global Unit) -> ST Global (ST Global Unit))
+  -> Event a
+
+newtype MakePureEvent = MakePureEvent MakePureEventT
+
+-- | Make a pure `Event` from a function which accepts a callback and returns an
+-- | unsubscription function.
+-- |
+-- | Note: you probably want to use `create` instead, unless you need explicit
+-- | control over unsubscription.
+makePureEvent :: MakePureEventT
+makePureEvent i = (\(MakePureEvent nt) -> nt) backdoor.makePureEvent i
+
+--
+type MakeLemmingEventT =
+  forall a
+   . ((forall b. Event b -> (b -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> ST Global Unit) -> ST Global (ST Global Unit))
+  -> Event a
+
+newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
+
+-- | Make an `Event` from a function which accepts a callback and returns an
+-- | unsubscription function.
+-- |
+-- | Note: you probably want to use `create` instead, unless you need explicit
+-- | control over unsubscription.
+makeLemmingEvent :: MakeLemmingEventT
+makeLemmingEvent i = (\(MakeLemmingEvent nt) -> nt) backdoor.makeLemmingEvent i
+
 type EventIO a =
   { event :: Event a
   , push :: a -> Effect Unit
-  }
-
-type AnEventIO m a =
-  { event :: AnEvent m a
-  , push :: a -> m Unit
   }
 
 -- | Create an event and a function which supplies a value to that event.
@@ -318,26 +399,66 @@ create = do
   pure unit
   (\(Create nt) -> nt) backdoor.create
 
+type EventIO' a =
+  { event :: Event a
+  , push :: EffectFn1 a Unit
+  }
+
+create' :: forall a. Effect (EventIO' a)
+create' = do
+  subscribers <- Ref.new []
+  pure
+    { event:
+        Event $ mkEffectFn2 \_ k -> do
+          rk <- Ref.new k
+          Ref.modify_ (_ <> [ rk ]) subscribers
+          pure do
+            Ref.write mempty rk
+            _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
+            pure unit
+    , push:
+        mkEffectFn1 \a -> do
+          o <- Ref.read subscribers
+          foreachE o \rk -> do
+            k <- Ref.read rk
+            runEffectFn1 k a
+    }
+
 type CreateT =
-  forall m1 m2 s a
-   . MonadST s m1
-  => MonadST s m2
-  => m1 (AnEventIO m2 a)
+  forall a
+   . Effect (EventIO a)
 
 newtype Create = Create CreateT
+
+-- | Create an event and a function which supplies a value to that event in ST.
+createPure :: CreatePureT
+createPure = do
+  pure unit
+  (\(CreatePure nt) -> nt) backdoor.createPure
+
+type PureEventIO a =
+  { event :: Event a
+  , push :: a -> ST Global Unit
+  }
+
+type CreatePureT =
+  forall a
+   . ST Global (PureEventIO a)
+
+newtype CreatePure = CreatePure CreatePureT
 
 -- | Creates an event bus within a closure.
 bus :: BusT
 bus i = (\(Bus nt) -> nt) backdoor.bus i
 
-type BusT = forall m s r a. MonadST s m => ((a -> m Unit) -> AnEvent m a -> r) -> AnEvent m r
+type BusT = forall r a. ((a -> Effect Unit) -> Event a -> r) -> Event r
 newtype Bus = Bus BusT
 
 -- | Takes the entire domain of a and allows for ad-hoc specialization.
 mailboxed :: MailboxedT
 mailboxed i = (\(Mailboxed nt) -> nt) backdoor.mailboxed i
 
-type MailboxedT = forall m s r a b. Ord a => MonadST s m => AnEvent m { address :: a, payload :: b } -> ((a -> AnEvent m b) -> r) -> AnEvent m r
+type MailboxedT = forall r a b. Ord a => Event { address :: a, payload :: b } -> ((a -> Event b) -> r) -> Event r
 
 newtype Mailboxed = Mailboxed MailboxedT
 
@@ -347,7 +468,7 @@ newtype Mailboxed = Mailboxed MailboxedT
 memoize :: MemoizeT
 memoize i = (\(Memoize nt) -> nt) backdoor.memoize i
 
-type MemoizeT = forall m s r a. MonadST s m => AnEvent m a -> (AnEvent m a -> r) -> AnEvent m r
+type MemoizeT = forall r a. Event a -> (Event a -> r) -> Event r
 newtype Memoize = Memoize MemoizeT
 
 -- | Makes an event hot, meaning that it will start firing on left-bind. This means that `pure` should never be used with `hot` as it will be lost. Use this for loops, for example.
@@ -355,19 +476,37 @@ hot :: HotT
 hot i = (\(Hot nt) -> nt) backdoor.hot i
 
 type HotT =
-  forall m s a
-   . MonadST s m
-  => AnEvent m a
-  -> m { event :: AnEvent m a, unsubscribe :: m Unit }
+  forall a
+   . Event a
+  -> Effect { event :: Event a, unsubscribe :: Effect Unit }
 
 newtype Hot = Hot HotT
+
+-- | Makes an event _burning_ hot. Like hot, it will start firing immediately on left bind. In addition, it _always_ fires _immediately_ upon subscription with the most recent value.
+burning
+  :: forall a
+   . a
+  -> Event a
+  -> Effect { event :: Event a, unsubscribe :: Effect Unit }
+burning i (Event e) = do
+  r <- Ref.new i
+  { event, push } <- create'
+  unsubscribe <- runEffectFn2 e true $ mkEffectFn1 \x -> do
+    Ref.write x r
+    runEffectFn1 push x
+  pure
+    { event: event <|>
+        ( Event $ mkEffectFn2 \_ k -> do
+            o <- Ref.read r
+            runEffectFn1 k o
+            pure (pure unit)
+        )
+    , unsubscribe
+    }
 
 --
 instance Action (Additive Int) (Event a) where
   act (Additive i) = delay i
-
-instance Action (Additive Int) (STEvent a) where
-  act = const identity
 
 delay :: DelayT
 delay i = (\(Delay nt) -> nt) backdoor.delay i
@@ -375,90 +514,122 @@ delay i = (\(Delay nt) -> nt) backdoor.delay i
 type DelayT = forall a. Int -> Event a -> Event a
 newtype Delay = Delay DelayT
 
-type ToEvent m a =
-  Always (Endo Function (Effect Unit)) (Endo Function (m Unit))
-  => Always (m (m Unit)) (Effect (Effect Unit))
-  => Applicative m
-  => a
-
-toEvent :: forall m. ToEvent m (AnEvent m ~> Event)
-toEvent (AnEvent i) = AnEvent $
-  dimap
-    (\f a -> unwrap (always (Endo (const (f a))) :: Endo Function (m Unit)) (pure unit))
-    (always :: m (m Unit) -> Effect (Effect Unit))
-    i
-
-type FromEvent m a =
-  Always (m Unit) (Effect Unit)
-  => Always (Endo Function (Effect (Effect Unit))) (Endo Function (m (m Unit)))
-  => Applicative m
-  => a
-
-fromEvent :: forall m. FromEvent m (Event ~> AnEvent m)
-fromEvent (AnEvent i) = AnEvent
-  $ dimap
-      (map always)
-      (\a -> unwrap (always (Endo (const a)) :: Endo Function (m (m Unit))) (pure (pure unit)))
-      i
-
-type Backdoor = { makeEvent :: MakeEvent
-     , create :: Create
-     , subscribe :: Subscribe
-     , bus :: Bus
-     , memoize :: Memoize
-     , hot :: Hot
-     , mailboxed :: Mailboxed
-     , delay :: Delay
-     }
+type Backdoor =
+  { makeEvent :: MakeEvent
+  , makePureEvent :: MakePureEvent
+  , makeLemmingEvent :: MakeLemmingEvent
+  , create :: Create
+  , createPure :: CreatePure
+  , subscribe :: Subscribe
+  , subscribePure :: SubscribePure
+  , bus :: Bus
+  , memoize :: Memoize
+  , hot :: Hot
+  , mailboxed :: Mailboxed
+  , delay :: Delay
+  }
 
 backdoor :: Backdoor
-backdoor =
-  { makeEvent:
-      let
-        makeEvent_ :: MakeEvent
-        makeEvent_ = MakeEvent AnEvent
-      in
-        makeEvent_
-  , create:
-      let
+backdoor = do
+  let
         create_ :: Create
         create_ = Create do
-          subscribers <- liftST $ Ref.new []
+          subscribers <- Ref.new []
           pure
             { event:
-                AnEvent \k -> do
-                  _ <- liftST $ Ref.modify (_ <> [ k ]) subscribers
+                Event $ mkEffectFn2 \_ k -> do
+                  rk <- Ref.new k
+                  Ref.modify_ (_ <> [ rk ]) subscribers
                   pure do
-                    _ <- liftST $ Ref.modify (deleteBy unsafeRefEq k) subscribers
+                    Ref.write mempty rk
+                    _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
                     pure unit
             , push:
                 \a -> do
-                  (liftST $ (Ref.read subscribers)) >>= traverse_ \k -> k a
+                  o <- Ref.read subscribers
+                  foreachE o \rk -> do
+                    k <- Ref.read rk
+                    runEffectFn1 k a
             }
+  { makeEvent:
+      let
+        makeEvent_ :: MakeEvent
+        makeEvent_ = MakeEvent
+          \e -> Event $ mkEffectFn2 \tf k ->
+            if tf then pure (pure unit) else e (\a -> runEffectFn1 k a)
       in
-        create_
+        makeEvent_
+  , makePureEvent:
+      let
+        makePureEvent_ :: MakePureEvent
+        makePureEvent_ = MakePureEvent
+          \e -> Event $ mkEffectFn2 \_ k -> do
+            let
+              stEventToEvent :: forall r a. ((a -> ST r Unit) -> ST r (ST r Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)
+              stEventToEvent = unsafeCoerce
+            stEventToEvent e (\a -> runEffectFn1 k a)
+      in
+        makePureEvent_
+  , makeLemmingEvent:
+      let
+        makeLemmingEvent_ :: MakeLemmingEvent
+        makeLemmingEvent_ = MakeLemmingEvent
+          \e -> Event $ mkEffectFn2 \tf k -> do
+            let
+              effectfulUnsubscribeToSTUnsubscribe :: forall r. Effect (Effect Unit) -> ST r (ST r Unit)
+              effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
+
+              stPusherToEffectPusher :: forall r a. (a -> ST r Unit) -> a -> Effect Unit
+              stPusherToEffectPusher = unsafeCoerce
+
+              stEventToEvent :: forall r a. ((a -> ST r Unit) -> ST r (ST r Unit)) -> (a -> Effect Unit) -> Effect (Effect Unit)
+              stEventToEvent = unsafeCoerce
+
+              o :: forall r a. Event a -> (a -> ST r Unit) -> ST r (ST r Unit)
+              o (Event ev) kx = effectfulUnsubscribeToSTUnsubscribe $ runEffectFn2 ev tf (mkEffectFn1 (stPusherToEffectPusher kx))
+
+            stEventToEvent (e o) (\a -> runEffectFn1 k a)
+      in
+        makeLemmingEvent_
+  , create: create_
+  , createPure: (unsafeCoerce :: Create -> CreatePure) create_
   , subscribe:
       let
         subscribe_ :: Subscribe
-        subscribe_ = Subscribe \(AnEvent e) k -> e k
+        subscribe_ = Subscribe \(Event e) k -> runEffectFn2 e false (mkEffectFn1 k)
       in
         subscribe_
+  , subscribePure:
+      let
+        subscribePure_ :: SubscribePure
+        subscribePure_ = SubscribePure o
+          where
+          effectfulUnsubscribeToSTUnsubscribe :: forall r. Effect (Effect Unit) -> ST r (ST r Unit)
+          effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
+
+          stPusherToEffectPusher :: forall r a. (a -> ST r Unit) -> a -> Effect Unit
+          stPusherToEffectPusher = unsafeCoerce
+
+          o :: forall r a. Event a -> (a -> ST r Unit) -> ST r (ST r Unit)
+          o (Event e) k = effectfulUnsubscribeToSTUnsubscribe (runEffectFn2 e true (mkEffectFn1 (stPusherToEffectPusher k)))
+      in
+        subscribePure_
   , bus:
       let
         bus_ :: Bus
-        bus_ = Bus \f -> makeEvent \k -> do
+        bus_ = Bus \f -> Event $ mkEffectFn2 \_ k -> do
           { push, event } <- create
-          k (f push event)
+          runEffectFn1 k (f push event)
           pure (pure unit)
       in
         bus_
   , memoize:
       let
         memoize_ :: Memoize
-        memoize_ = Memoize \e f -> makeEvent \k -> do
-          { push, event } <- create
-          k (f event)
-          subscribe e push
+        memoize_ = Memoize \(Event e) f -> Event $ mkEffectFn2 \b k -> do
+          { push, event } <- create'
+          runEffectFn1 k (f event)
+          runEffectFn2 e b push
       in
         memoize_
   , hot:
@@ -473,10 +644,10 @@ backdoor =
   , mailboxed:
       let
         mailboxed_ :: Mailboxed
-        mailboxed_ = Mailboxed \e f -> makeEvent \k1 -> do
-          r <- liftST $ Ref.new Map.empty
-          k1 $ f \a -> makeEvent \k2 -> do
-            void $ liftST $ Ref.modify
+        mailboxed_ = Mailboxed \(Event e) f -> Event $ mkEffectFn2 \tf k1 -> do
+          r <- Ref.new Map.empty
+          runEffectFn1 k1 $ f \a -> Event $ mkEffectFn2 \_ k2 -> do
+            void $ Ref.modify
               ( Map.alter
                   ( case _ of
                       Nothing -> Just [ k2 ]
@@ -485,7 +656,7 @@ backdoor =
                   a
               )
               r
-            pure $ void $ liftST $ Ref.modify
+            pure $ void $ Ref.modify
               ( Map.alter
                   ( case _ of
                       Nothing -> Nothing
@@ -494,29 +665,29 @@ backdoor =
                   a
               )
               r
-          unsub <- subscribe e \{ address, payload } -> do
-            o <- liftST $ Ref.read r
+          unsub <- runEffectFn2 e tf $ mkEffectFn1 \{ address, payload } -> do
+            o <- Ref.read r
             case Map.lookup address o of
               Nothing -> pure unit
-              Just arr -> for_ arr (_ $ payload)
+              Just arr -> foreachE arr (\i -> runEffectFn1 i payload)
           pure do
             -- free references - helps gc?
-            void $ liftST $ Ref.write (Map.empty) r
+            void $ Ref.write (Map.empty) r
             unsub
       in
         mailboxed_
   , delay:
       let
         delay_ :: Delay
-        delay_ = Delay \n e ->
-          makeEvent \k -> do
+        delay_ = Delay \n (Event e) ->
+          Event $ mkEffectFn2 \tf k -> do
             tid <- ERef.new (mempty :: Set TimeoutId)
             canceler <-
-              subscribe e \a -> do
+              runEffectFn2 e tf $ mkEffectFn1 \a -> do
                 localId <- ERef.new Nothing
                 id <-
                   setTimeout n do
-                    k a
+                    runEffectFn1 k a
                     lid <- ERef.read localId
                     maybe (pure unit) (\id -> ERef.modify_ (delete id) tid) lid
                 ERef.write (Just id) localId
