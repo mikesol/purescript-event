@@ -65,8 +65,6 @@ import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
 import Data.Set (Set, singleton, delete)
-import Data.Tuple (Tuple(..), fst, snd)
-import Data.Tuple.Nested ((/\))
 import Effect (Effect, foreachE)
 import Effect.Ref as ERef
 import Effect.Ref as Ref
@@ -186,11 +184,11 @@ data FoldPass a b = EventAndInput a b | EventAndOutput a b | Stop a b
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall a b. (a -> b -> b) -> Event a -> b -> Event b
-fold f e b = fix \i -> do
+fold f e b = fix \output -> do
   let
-    output = sampleOn (i <|> pure b) (f <$> e)
+    input = sampleOn (output <|> pure b) (f <$> e)
 
-  { input: output, output }
+  { input, output }
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
