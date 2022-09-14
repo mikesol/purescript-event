@@ -474,6 +474,7 @@ main = do
                   usu
                   STRef.read rff
               oo `shouldEqual` [ 333, 42 ]
+              unsub
 
           describe "Debounce" do
             it "debounces" do
