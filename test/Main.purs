@@ -184,7 +184,7 @@ main = do
                   let foldy = fold add 0 add3
                   let add4 = map (add 4) add3
                   let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  (filter (_ > 5) altr) `sampleOnRightOp` (flip Tuple <$> add2)
+                  add2 `sampleOnRightOp`  (flip Tuple <$> filter (_ > 5) altr)
               u <- subscribe event' \i ->
                 liftST $ void $ STRef.modify (Array.cons i) r
               push 0
