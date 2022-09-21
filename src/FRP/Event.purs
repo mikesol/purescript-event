@@ -211,13 +211,13 @@ sampleOnLeft :: forall a b. Event (a -> b) -> Event a ->  Event b
 sampleOnLeft (Event e1) (Event e2) =
   Event $ mkEffectFn2 \b k -> do
     latest <- Ref.new Nothing
-    c2 <-
-      runEffectFn2 e2 b $ mkEffectFn1 \a -> do
-        Ref.write (Just a) latest
     c1 <-
       runEffectFn2 e1 b $ mkEffectFn1 \f -> do
         o <- Ref.read latest
         for_ o (\a -> runEffectFn1 k (f a))
+    c2 <-
+      runEffectFn2 e2 b $ mkEffectFn1 \a -> do
+        Ref.write (Just a) latest
     pure do
       c1
       c2

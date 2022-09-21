@@ -17,6 +17,7 @@ import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, oneOf, sequence)
 import Data.Tuple (Tuple(..))
+import Data.Tuple.Nested ((/\))
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
@@ -25,7 +26,7 @@ import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
 import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, subscribe)
 import FRP.Event as Event
-import FRP.Event.Class (fold, (<*|>))
+import FRP.Event.Class (fold, sampleOnRightOp)
 import FRP.Event.Time (debounce, interval)
 import FRP.Event.VBus (V, vbus)
 import Test.Spec (describe, it)
@@ -181,10 +182,10 @@ main = do
                   let add1 = map (add 1) event
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
-                  let foldy = fold add 0 add3
+                  let foldy = fold (\b a -> a + b) 0 add3
                   let add4 = map (add 4) add3
                   let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  flip Tuple <$> filter (_ > 5) altr <*|> add2
+                  sampleOnRightOp add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
               u <- subscribe event' \i ->
                 liftST $ void $ STRef.modify (Array.cons i) r
               push 0
