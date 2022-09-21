@@ -132,10 +132,10 @@ merge
   => List.List (Tuple time a)
   -> List.List (Tuple time a)
   -> List.List (Tuple time a)
-merge xs List.Nil = xs
-merge List.Nil ys = ys
+merge xs       List.Nil = xs
+merge List.Nil ys       = ys
 merge xs@(Tuple tx x : xs') ys@(Tuple ty y : ys')
-  | tx <= ty = Tuple tx x : merge xs' ys
+  | tx <= ty  = Tuple tx x : merge xs' ys
   | otherwise = Tuple ty y : merge xs ys'
 
 latestAt
@@ -147,8 +147,7 @@ latestAt
 latestAt t xs = List.last (List.takeWhile ((_ <= t) <<< fst) xs)
 
 meaning :: forall time a. Bounded time => ABehavior (Semantic time) a -> time -> a
-meaning b t = unsafePartial valueOf (sample b (once t identity))
-  where
+meaning b t = unsafePartial valueOf (sample b (once t identity)) where
   valueOf :: Partial => Semantic time a -> a
   valueOf (Semantic (Tuple _ a : Nil)) = a
 
@@ -157,10 +156,10 @@ meaning b t = unsafePartial valueOf (sample b (once t identity))
 
 instance applySemantic :: Ord time => Apply (Semantic time) where
   apply (Semantic xs) (Semantic ys) =
-    Semantic (filterMap fx xs `merge` filterMap fy ys)
+      Semantic (filterMap fx xs `merge` filterMap fy ys)
     where
-    fx (Tuple t f) = map f <$> latestAt t ys
-    fy (Tuple t a) = map (_ $ a) <$> latestAt t xs
+      fx (Tuple t f) = map f <$> latestAt t ys
+      fy (Tuple t a) = map (_ $ a) <$> latestAt t xs
 
 instance applicativeSemantic :: Bounded time => Applicative (Semantic time) where
   pure a = Semantic (List.singleton (Tuple bottom a))
@@ -190,51 +189,41 @@ instance filterableSemantic :: Filterable (Semantic time) where
 
   partitionMap p (Semantic xs) = go (partitionMap (split p) xs)
     where
-    go { left, right } = { left: Semantic left, right: Semantic right }
+      go { left, right } = { left: Semantic left, right: Semantic right }
 
-    split p' (Tuple x a) = case p' a of
-      Left a' -> Left (Tuple x a')
-      Right a' -> Right (Tuple x a')
+      split p' (Tuple x a) = case p' a of
+        Left a'  -> Left (Tuple x a')
+        Right a' -> Right (Tuple x a')
 
   partition p (Semantic xs) = go (partition (p <<< snd) xs)
-    where
-    go { yes, no } = { yes: Semantic yes, no: Semantic no }
+    where go { yes, no } = { yes: Semantic yes, no: Semantic no }
 
 instance isEventSemantic :: Bounded time => IsEvent (Semantic time) where
   fold :: forall a b. (b -> a -> b) -> b -> Semantic time a -> Semantic time b
-  fold f b0 (Semantic xs) = Semantic ((mapAccumL step b0 xs).value)
-    where
+  fold f b0 (Semantic xs) = Semantic ((mapAccumL step b0 xs).value) where
     step b (Tuple t a) =
-      let
-        b' = f b a
-      in
-        { accum: b'
-        , value: Tuple t b'
-        }
+      let b' = f b a
+      in { accum: b'
+         , value: Tuple t b'
+         }
 
-  sampleOnRight :: forall a b. Semantic time (a -> b) -> Semantic time a -> Semantic time b
-  sampleOnRight (Semantic ys) (Semantic xs) = Semantic (filterMap go xs)
-    where
-    go (Tuple t a) = map ((#) a) <$> latestAt t ys
-
-  sampleOnLeft :: forall a b. Semantic time (a -> b) -> Semantic time a -> Semantic time b
-  sampleOnLeft (Semantic ys) (Semantic xs) = Semantic (filterMap go ys)
-    where
+  sampleOnRight :: forall a b. Semantic time a -> Semantic time (a -> b) -> Semantic time b
+  sampleOnRight (Semantic xs) (Semantic ys) = Semantic (filterMap go ys) where
     go (Tuple t f) = map f <$> latestAt t xs
 
+  sampleOnLeft :: forall a b. Semantic time a -> Semantic time (a -> b) -> Semantic time b
+  sampleOnLeft (Semantic xs) (Semantic ys) = Semantic (filterMap go xs) where
+    go (Tuple t a) = map ((#) a) <$> latestAt t ys
+
   keepLatest :: forall a. Semantic time (Semantic time a) -> Semantic time a
-  keepLatest (Semantic es) = Semantic (go es)
-    where
+  keepLatest (Semantic es) = Semantic (go es) where
     go Nil = Nil
     go (Tuple _ (Semantic xs) : Nil) = xs
     go (Tuple _ (Semantic xs) : es'@(Tuple tNext _ : _)) = filter ((_ < tNext) <<< fst) xs <> go es'
 
-  fix
-    :: forall i o
-     . ( Semantic time i
-         -> { input :: Semantic time i
-            , output :: Semantic time o
-            }
-       )
-    -> Semantic time o
+  fix :: forall i o
+       . (Semantic time i -> { input :: Semantic time i
+                             , output :: Semantic time o
+                             })
+      -> Semantic time o
   fix _ = unsafeCrashWith "FRP.Event.Semantic: fix is not yet implemented"
