@@ -212,9 +212,14 @@ derivative' = derivative (_ $ identity)
 fixB :: forall event a. IsEvent event => a -> (ABehavior event a -> ABehavior event a) -> ABehavior event a
 fixB a f =
   behavior \s ->
-    fix \event ->
-      let b = f (step a event)
-      in { input: sample_ b s, output: sampleOnRight event s }
+    sampleOnRight
+      ( fix \event ->
+          let
+            b = f (step a event)
+          in
+            sample_ b s
+      )
+      s
 
 -- | Solve a first order differential equation of the form
 -- |
