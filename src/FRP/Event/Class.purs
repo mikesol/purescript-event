@@ -47,6 +47,7 @@ import Data.Tuple (Tuple(..), snd)
 class (Alternative event, Filterable event) <= IsEvent event where
   keepLatest :: forall a. event (event a) -> event a
   sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
+  sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i. (event i -> event i) -> event i
 
 infixl 4 sampleOnRight as <|**>
