@@ -128,6 +128,6 @@ gateBy f sampled sampler = compact $
   <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
-fold :: forall event a b. IsEvent event => (a -> b -> b) -> event a -> b -> event b
-fold f e b = fix \i -> sampleOnRight (i <|> pure b) (f <$> e)
+fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b
+fold f b e = fix \i -> sampleOnRight (i <|> pure b) ((flip f) <$> e)
 
