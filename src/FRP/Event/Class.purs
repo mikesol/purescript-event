@@ -5,9 +5,20 @@ module FRP.Event.Class
   , count
   , mapAccum
   , withLast
-  , biSampleOn
-  , sampleOn
-  , sampleOn_
+  , sampleOnRight
+  , (<|**>)
+  , sampleOnRightOp
+  , (<|*>)
+  , sampleOnRight_
+  , (<|*)
+  , sampleOnLeft
+  , (<**|>)
+  , sampleOnLeftOp
+  , (<*|>)
+  , sampleOnLeft_
+  , (*|>)
+  , applyOp
+  , (<**>)
   , keepLatest
   , fix
   , gate
@@ -35,23 +46,41 @@ import Data.Tuple (Tuple(..), snd)
 -- | - `bang`: A one-shot event that happens NOW.
 class (Alternative event, Filterable event) <= IsEvent event where
   keepLatest :: forall a. event (event a) -> event a
-  sampleOn :: forall a b. event a -> event (a -> b) -> event b
+  sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i. (event i -> event i) -> event i
+
+infixl 4 sampleOnRight as <|**>
+infixl 4 sampleOnLeft as <**|>
+
+sampleOnRightOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnRightOp ef ea = sampleOnRight ef ((#) <$> ea)
+
+infixl 4 sampleOnRightOp as <|*>
+
+sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnLeftOp ef ea = sampleOnLeft ef ((#) <$> ea)
+
+infixl 4 sampleOnLeftOp as <*|>
+
+applyOp :: forall event a b. Applicative event => event a -> event (a -> b) -> event b
+applyOp ea ef = apply ((#) <$> ea) ef
+
+infixl 4 applyOp as <**>
 
 -- | Count the number of events received.
 count :: forall event a. IsEvent event => event a -> event Int
-count s = fold (\_ n -> n + 1) s 0
+count = fold (\n _ -> n + 1) 0
 
 -- | Combine subsequent events using a `Monoid`.
 folded :: forall event a. IsEvent event => Monoid a => event a -> event a
-folded s = fold append s mempty
+folded = fold append mempty
 
 -- | Compute differences between successive event values.
 withLast :: forall event a. IsEvent event => event a -> event { now :: a, last :: Maybe a }
-withLast e = filterMap identity (fold step e Nothing)
+withLast e = filterMap identity (fold step Nothing e)
   where
-  step a Nothing = Just { now: a, last: Nothing }
-  step a (Just { now: b }) = Just { now: a, last: Just b }
+  step Nothing a = Just { now: a, last: Nothing }
+  step (Just { now: b }) a = Just { now: a, last: Just b }
 
 -- | Map over an event with an accumulator.
 -- |
@@ -60,20 +89,22 @@ withLast e = filterMap identity (fold step e Nothing)
 -- | ```purescript
 -- | mapAccum (\x i -> Tuple (i + 1) (Tuple x i)) 0`.
 -- | ```
-mapAccum :: forall event a b c. IsEvent event => (a -> b -> Tuple b c) -> event a -> b -> event c
-mapAccum f xs acc = filterMap snd
-  $ fold (\a (Tuple b _) -> pure <$> f a b) xs
-  $ Tuple acc Nothing
+mapAccum :: forall event a b c. IsEvent event => (a -> b -> Tuple a c) -> a -> event b -> event c
+mapAccum f acc xs = filterMap snd
+  $ fold (\(Tuple a _) b -> pure <$> f a b) (Tuple acc Nothing) xs
 
 -- | Create an `Event` which samples the latest values from the first event
 -- | at the times when the second event fires, ignoring the values produced by
 -- | the second event.
-sampleOn_ :: forall event a b. IsEvent event => event a -> event b -> event a
-sampleOn_ a b = sampleOn a (b $> identity)
+sampleOnRight_ :: forall event a b. IsEvent event => event a -> event b -> event a
+sampleOnRight_ a b = sampleOnRight a (const identity <$> b)
 
--- | Creates a bi-directional `sampleOn`. That is, the first event samples on the second and vice versa.
-biSampleOn :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
-biSampleOn a b = (#) <$> a <*> b
+infixl 4 sampleOnRight_ as <|*
+
+sampleOnLeft_ :: forall event a b. IsEvent event => event a -> event b -> event b
+sampleOnLeft_ a b = sampleOnLeft a (const <$> b)
+
+infixl 4 sampleOnLeft_ as *|>
 
 -- | Sample the events that are fired while a boolean event is true. Note that,
 -- | until the boolean event fires, it will be assumed to be `false`, and events
@@ -90,10 +121,12 @@ gateBy
   -> event a
   -> event b
   -> event b
-gateBy f sampled = compact
-  <<< sampleOn (pure Nothing <|> Just <$> sampled)
-  <<< map \x p -> if f p x then Just x else Nothing
+gateBy f sampled sampler = compact $
+  (\p x -> if f p x then Just x else Nothing)
+  <$> (pure Nothing <|> Just <$> sampled)
+  <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (a -> b -> b) -> event a -> b -> event b
-fold f e b = fix \i -> sampleOn (i <|> pure b) (f <$> e)
+fold f e b = fix \i -> sampleOnRight (i <|> pure b) (f <$> e)
+

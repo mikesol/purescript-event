@@ -32,7 +32,7 @@ import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
-import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, sampleOn, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, sampleOnRight, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
 
 -- | `ABehavior` is the more general type of `Behavior`, which is parameterized
@@ -88,13 +88,13 @@ behavior = ABehavior
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (sampleOn (pure a `alt` e))
+step a e = ABehavior (sampleOnRight (pure a `alt` e))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
 -- | to create a new value.
-unfold :: forall event a b. IsEvent event => (a -> b -> b) -> event a -> b -> ABehavior event b
-unfold f e a = step a (fold f e a)
+unfold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> ABehavior event b
+unfold f a e = step a (fold f a e)
 
 -- | Sample a `Behavior` on some `Event`.
 sample :: forall event a b. ABehavior event a -> event (a -> b) -> event b
@@ -141,16 +141,14 @@ integral
   -> ABehavior event a
   -> ABehavior event a
 integral g initial t b =
-  ABehavior \e ->
-    let
-      x = sample b (e $> identity)
-      y = withLast (sampleBy Tuple t x)
-      z = fold approx y initial
-    in
-      sampleOn z e
+    ABehavior \e ->
+      let x = sample b (e $> identity)
+          y = withLast (sampleBy Tuple t x)
+          z = fold approx initial y
+      in sampleOnRight z e
   where
-  approx { last: Nothing } s = s
-  approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } s = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
+    approx s { last: Nothing } = s
+    approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
 
   two :: t
   two = one + one
@@ -188,13 +186,11 @@ derivative
   -> ABehavior event a
   -> ABehavior event a
 derivative g t b =
-  ABehavior \e ->
-    let
-      x = sample b (e $> identity)
-      y = withLast (sampleBy Tuple t x)
-      z = map approx y
-    in
-      sampleOn z e
+    ABehavior \e ->
+      let x = sample b (e $> identity)
+          y = withLast (sampleBy Tuple t x)
+          z = map approx y
+      in sampleOnRight z e
   where
   approx { last: Nothing } = zero
   approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
@@ -216,7 +212,7 @@ derivative' = derivative (_ $ identity)
 fixB :: forall event a. IsEvent event => a -> (ABehavior event a -> ABehavior event a) -> ABehavior event a
 fixB a f =
   behavior \s ->
-    sampleOn
+    sampleOnRight
       ( fix \event ->
           let
             b = f (step a event)

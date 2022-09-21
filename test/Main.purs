@@ -24,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
-import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOn, subscribe)
+import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
 import FRP.Event.Time (debounce, interval)
@@ -155,7 +155,7 @@ main = do
             { push, event } <- Event.create
             let
               event' = do
-                let foldy = (fold (\_ b -> b + 1) event 0)
+                let foldy = (fold (\b _ -> b + 1) 0 event)
                 let add2 = map (add 2) foldy
                 let add3 = map (add 3) add2
                 let add4 = map (add 4) add3
@@ -182,10 +182,10 @@ main = do
                   let add1 = map (add 1) event
                   let add2 = map (add 2) add1
                   let add3 = map (add 3) add2
-                  let foldy = fold (\a b -> a + b) add3 0
+                  let foldy = fold (\b a -> a + b) 0 add3
                   let add4 = map (add 4) add3
                   let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  sampleOn add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+                  sampleOnRight add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
               u <- subscribe event' \i ->
                 liftST $ void $ STRef.modify (Array.cons i) r
               push 0
@@ -201,7 +201,6 @@ main = do
             let
               x :: Array (Tuple Int Int)
               x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
-
               e :: Event (Tuple Int Int)
               e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
             r <- toEffect $ STRef.new []
