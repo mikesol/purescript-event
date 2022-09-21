@@ -60,8 +60,8 @@ sampleOnRightOp ef ea = sampleOnRight ((#) <$> ef) ea
 
 infixl 4 sampleOnRightOp as <|**>
 
-sampleOnLeftOp :: forall event a b. IsEvent event => event a -> event (a -> b) -> event b
-sampleOnLeftOp ef ea = sampleOnLeft ((#) <$> ef) ea
+sampleOnLeftOp :: forall event a b. IsEvent event => event (a -> b) -> event a -> event b
+sampleOnLeftOp ef ea = sampleOnLeft (($) <$> ef) ea
 
 infixl 4 sampleOnLeftOp as <**|>
 
