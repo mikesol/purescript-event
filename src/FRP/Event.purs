@@ -65,7 +65,7 @@ import Data.Maybe (Maybe(..), maybe)
 import Data.Monoid.Action (class Action)
 import Data.Monoid.Additive (Additive(..))
 import Data.Set (Set, singleton, delete)
-import Effect (Effect, foreachE)
+import Effect (Effect)
 import Effect.Ref as ERef
 import Effect.Ref as Ref
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
@@ -177,7 +177,6 @@ instance semiringEvent :: (Semiring a) => Semiring (Event a) where
   add = lift2 add
   mul = lift2 mul
 
-
 instance ringEvent :: (Ring a) => Ring (Event a) where
   sub = lift2 sub
 
@@ -192,7 +191,6 @@ filter p (Event e) =
               Nothing -> pure unit
           )
     )
-
 
 sampleOnLeft :: forall a b. Event a -> Event (a -> b) -> Event b
 sampleOnLeft (Event e1) (Event e2) =
@@ -258,10 +256,10 @@ biSampleOn (Event e1) (Event e2) =
     case samples1 of
       -- if there are no samples in samples1, we still want to write samples2
       [] -> Ref.write (Array.last samples2) latest2
-      _ -> foreachE samples1 \a -> do
+      _ -> runEffectFn2 fastForeachE samples1 $ mkEffectFn1 \a -> do
         -- We write the current values as we go through -- this would only matter for recursive events
         Ref.write (Just a) latest1
-        foreachE samples2 \f -> do
+        runEffectFn2 fastForeachE samples2 $ mkEffectFn1 \f -> do
           Ref.write (Just f) latest2
           runEffectFn1 k (f a)
     -- Free the samples so they can be GCed
@@ -407,7 +405,7 @@ create' = do
     , push:
         mkEffectFn1 \a -> do
           o <- Ref.read subscribers
-          foreachE o \rk -> do
+          runEffectFn2 fastForeachE o $ mkEffectFn1 \rk -> do
             k <- Ref.read rk
             runEffectFn1 k a
     }
@@ -493,6 +491,9 @@ burning i (Event e) = do
     }
 
 --
+foreign import fastForeachE :: forall a. EffectFn2 (Array a) (EffectFn1 a Unit) Unit
+
+--
 instance Action (Additive Int) (Event a) where
   act (Additive i) = delay i
 
@@ -520,25 +521,25 @@ type Backdoor =
 backdoor :: Backdoor
 backdoor = do
   let
-        create_ :: Create
-        create_ = Create do
-          subscribers <- Ref.new []
-          pure
-            { event:
-                Event $ mkEffectFn2 \_ k -> do
-                  rk <- Ref.new k
-                  Ref.modify_ (_ <> [ rk ]) subscribers
-                  pure do
-                    Ref.write mempty rk
-                    _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
-                    pure unit
-            , push:
-                \a -> do
-                  o <- Ref.read subscribers
-                  foreachE o \rk -> do
-                    k <- Ref.read rk
-                    runEffectFn1 k a
-            }
+    create_ :: Create
+    create_ = Create do
+      subscribers <- Ref.new []
+      pure
+        { event:
+            Event $ mkEffectFn2 \_ k -> do
+              rk <- Ref.new k
+              Ref.modify_ (_ <> [ rk ]) subscribers
+              pure do
+                Ref.write mempty rk
+                _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
+                pure unit
+        , push:
+            \a -> do
+              o <- Ref.read subscribers
+              runEffectFn2 fastForeachE o $ mkEffectFn1 \rk -> do
+                k <- Ref.read rk
+                runEffectFn1 k a
+        }
   { makeEvent:
       let
         makeEvent_ :: MakeEvent
@@ -657,7 +658,7 @@ backdoor = do
             o <- Ref.read r
             case Map.lookup address o of
               Nothing -> pure unit
-              Just arr -> foreachE arr (\i -> runEffectFn1 i payload)
+              Just arr -> runEffectFn2 fastForeachE arr $ mkEffectFn1 \i -> runEffectFn1 i payload
           pure do
             -- free references - helps gc?
             void $ Ref.write (Map.empty) r
