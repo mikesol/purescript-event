@@ -69,7 +69,7 @@ import Effect (Effect)
 import Effect.Ref as ERef
 import Effect.Ref as Ref
 import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
-import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2)
+import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
 import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
@@ -390,22 +390,30 @@ type EventIO' a =
   , push :: EffectFn1 a Unit
   }
 
+data ObjHack (a :: Type)
+
+foreign import objHack :: forall a. Effect (ObjHack a)
+foreign import insertObjHack :: forall a. EffectFn3 Int a (ObjHack a) Unit
+foreign import deleteObjHack :: forall a. EffectFn2 Int (ObjHack a) Unit
+
 create' :: forall a. Effect (EventIO' a)
 create' = do
-  subscribers <- Ref.new []
+  subscribers <- objHack
+  idx <- Ref.new 0
   pure
     { event:
         Event $ mkEffectFn2 \_ k -> do
           rk <- Ref.new k
-          Ref.modify_ (_ <> [ rk ]) subscribers
+          ix <- Ref.read idx
+          runEffectFn3 insertObjHack ix rk subscribers
+          Ref.modify_ (_ + 1) idx
           pure do
             Ref.write mempty rk
-            _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
+            runEffectFn2 deleteObjHack ix subscribers
             pure unit
     , push:
         mkEffectFn1 \a -> do
-          o <- Ref.read subscribers
-          runEffectFn2 fastForeachE o $ mkEffectFn1 \rk -> do
+          runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
             k <- Ref.read rk
             runEffectFn1 k a
     }
@@ -492,7 +500,7 @@ burning i (Event e) = do
 
 --
 foreign import fastForeachE :: forall a. EffectFn2 (Array a) (EffectFn1 a Unit) Unit
-
+foreign import fastForeachOhE :: forall a. EffectFn2 (ObjHack a) (EffectFn1 a Unit) Unit
 --
 instance Action (Additive Int) (Event a) where
   act (Additive i) = delay i
@@ -523,20 +531,22 @@ backdoor = do
   let
     create_ :: Create
     create_ = Create do
-      subscribers <- Ref.new []
+      subscribers <- objHack
+      idx <- Ref.new 0
       pure
         { event:
             Event $ mkEffectFn2 \_ k -> do
               rk <- Ref.new k
-              Ref.modify_ (_ <> [ rk ]) subscribers
+              ix <- Ref.read idx
+              runEffectFn3 insertObjHack ix rk subscribers
+              Ref.modify_ (_ + 1) idx
               pure do
                 Ref.write mempty rk
-                _ <- Ref.modify (deleteBy unsafeRefEq rk) subscribers
+                runEffectFn2 deleteObjHack ix subscribers
                 pure unit
         , push:
             \a -> do
-              o <- Ref.read subscribers
-              runEffectFn2 fastForeachE o $ mkEffectFn1 \rk -> do
+              runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
                 k <- Ref.read rk
                 runEffectFn1 k a
         }
