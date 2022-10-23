@@ -15,7 +15,7 @@ module FRP.Event
   , Mailboxed(..)
   , MailboxedT
   , MakeEvent(..)
-  , MakeEventO(..)
+  , MakeEventO
   , MakeEventOT
   , MakeEventT
   , MakeLemmingEvent(..)
@@ -364,7 +364,7 @@ makePureEvent i = (\(MakePureEvent nt) -> nt) backdoor.makePureEvent i
 --
 type MakeEventOT =
   forall a
-   . EffectFn2 Boolean (EffectFn1 a Unit) (Effect Unit)
+   . EffectFn1 (EffectFn1 a Unit) (Effect Unit)
   -> Event a
 
 newtype MakeEventO = MakeEventO MakeEventOT
@@ -581,7 +581,8 @@ backdoor = do
       let
         makeEventO_ :: MakeEventO
         makeEventO_ = MakeEventO
-          \e -> Event e
+          \e -> Event $ mkEffectFn2 \tf k ->
+            if tf then pure (pure unit) else runEffectFn1 e k
       in
         makeEventO_
   , makePureEvent:
