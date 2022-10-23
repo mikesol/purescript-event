@@ -18,8 +18,8 @@
   },
   "homepage": "https://github.com/mikesol/purescript-hyrule#readme",
   "devDependencies": {
-    "purescript": "^0.15.0",
-    "purs-tidy": "^0.7.2",
-    "spago": "^0.20.8"
+    "purescript": "^0.15.6",
+    "purs-tidy": "^0.9.2",
+    "spago": "^0.20.9"
   }
 }

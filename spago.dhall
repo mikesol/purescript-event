@@ -10,7 +10,6 @@
   , "js-timers"
   , "lists"
   , "maybe"
-  , "monoid-extras"
   , "newtype"
   , "now"
   , "ordered-collections"
