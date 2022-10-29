@@ -19,6 +19,7 @@
   "homepage": "https://github.com/mikesol/purescript-hyrule#readme",
   "devDependencies": {
     "purescript": "^0.15.6",
+    "purs-backend-es": "^1.2.0",
     "purs-tidy": "^0.9.2",
     "spago": "^0.20.9"
   }

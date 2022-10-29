@@ -8,6 +8,7 @@ import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global, toEffect)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
+import Control.Monad.ST.Uncurried (mkSTFn1, runSTFn2)
 import Control.Plus (empty)
 import Data.Array (length, replicate)
 import Data.Array as Array
@@ -508,4 +509,28 @@ main = do
               hack.push 3
               a <- Ref.read rf
               _ <- unsafeBackdoor old backdoor
+              shouldEqual a [ 3, 2, 1 ]
+
+
+          describe "Lemming" do
+            it "follows like a lemming" $ liftEffect do
+              ev :: EventIO Int <- Event.create
+              rf <- Ref.new []
+              let e0 = Event.makeLemmingEvent \s k -> s ev.event k
+              _ <- Event.subscribe e0 \i -> Ref.modify_ (Array.cons i) rf
+              ev.push 1
+              ev.push 2
+              ev.push 3
+              a <- Ref.read rf
+              shouldEqual a [ 3, 2, 1 ]
+
+            it "follows like an optimized lemming" $ liftEffect do
+              ev :: EventIO Int <- Event.create
+              rf <- Ref.new []
+              let e0 = Event.makeLemmingEventO \s -> mkSTFn1 \k -> runSTFn2 s ev.event k
+              _ <- Event.subscribe e0 \i -> Ref.modify_ (Array.cons i) rf
+              ev.push 1
+              ev.push 2
+              ev.push 3
+              a <- Ref.read rf
               shouldEqual a [ 3, 2, 1 ]
