@@ -28,6 +28,7 @@ module FRP.Event
   , MemoizeT
   , PureEventIO
   , Subscribe(..)
+  , Subscriber(..)
   , SubscribePure(..)
   , SubscribePureT
   , SubscribeT
@@ -386,9 +387,11 @@ newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
 makeLemmingEvent :: MakeLemmingEventT
 makeLemmingEvent i = (\(MakeLemmingEvent nt) -> nt) backdoor.makeLemmingEvent i
 
+newtype Subscriber = Subscriber (forall b. STFn2 (Event b) (STFn1 b Global Unit) Global (ST Global Unit))
+
 type MakeLemmingEventOT =
   forall a
-   . STFn2 (forall b. STFn2 (Event b) (STFn1 b Global Unit) Global (ST Global Unit)) (STFn1 a Global Unit) Global (ST Global Unit)
+   . STFn2 Subscriber (STFn1 a Global Unit) Global (ST Global Unit)
   -> Event a
 
 newtype MakeLemmingEventO = MakeLemmingEventO MakeLemmingEventOT
@@ -633,13 +636,13 @@ backdoor = do
               stPusherToEffectPusher :: forall r a. STFn1 a r Unit -> EffectFn1 a Unit
               stPusherToEffectPusher = unsafeCoerce
 
-              stEventToEvent :: forall r a. (STFn2 (forall b. STFn2 (Event b) (STFn1 b r Unit) r (ST r Unit)) (STFn1 a r Unit) r (ST r Unit)) -> EffectFn2 (forall b. STFn2 (Event b) (STFn1 b r Unit) r (ST r Unit)) (EffectFn1 a Unit) (Effect Unit)
+              stEventToEvent :: forall r a. (STFn2 Subscriber (STFn1 a r Unit) r (ST r Unit)) -> EffectFn2 Subscriber (EffectFn1 a Unit) (Effect Unit)
               stEventToEvent = unsafeCoerce
 
               o :: forall r a. STFn2 (Event a) (STFn1 a r Unit) r (ST r Unit)
               o = mkSTFn2 \(Event ev) kx -> effectfulUnsubscribeToSTUnsubscribe $ runEffectFn2 ev tf (stPusherToEffectPusher kx)
 
-            runEffectFn2 (stEventToEvent e) o k
+            runEffectFn2 (stEventToEvent e) (Subscriber o) k
       in
         makeLemmingEventO_
   , create: create_
