@@ -1,6 +1,6 @@
 {
   "name": "purescript-hyrule",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "description": "A rock-hard fork of `purescript-event`.",
   "main": "index.js",
   "scripts": {
