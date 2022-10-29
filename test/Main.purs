@@ -8,7 +8,7 @@ import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global, toEffect)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
-import Control.Monad.ST.Uncurried (mkSTFn1, runSTFn2)
+import Control.Monad.ST.Uncurried (mkSTFn1, mkSTFn2, runSTFn2)
 import Control.Plus (empty)
 import Data.Array (length, replicate)
 import Data.Array as Array
@@ -527,7 +527,7 @@ main = do
             it "follows like an optimized lemming" $ liftEffect do
               ev :: EventIO Int <- Event.create
               rf <- Ref.new []
-              let e0 = Event.makeLemmingEventO \s -> mkSTFn1 \k -> runSTFn2 s ev.event k
+              let e0 = Event.makeLemmingEventO (mkSTFn2 \s k -> runSTFn2 s ev.event k)
               _ <- Event.subscribe e0 \i -> Ref.modify_ (Array.cons i) rf
               ev.push 1
               ev.push 2
