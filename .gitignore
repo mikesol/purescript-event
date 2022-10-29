@@ -7,3 +7,4 @@
 /.purs*
 /.psa*
 /.spago
+/output-es/
