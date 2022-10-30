@@ -23,6 +23,7 @@ import Effect (Effect)
 import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
+import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
 import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), Subscriber(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOnRight, subscribe)
@@ -528,7 +529,7 @@ main = do
               ev :: EventIO Int <- Event.create
               rf <- Ref.new []
               let e0 = Event.makeLemmingEventO (mkSTFn2 \(Subscriber s) k -> runSTFn2 s ev.event k)
-              _ <- Event.subscribe e0 \i -> Ref.modify_ (Array.cons i) rf
+              _ <- runEffectFn2 Event.subscribeO e0 (mkEffectFn1 \i -> Ref.modify_ (Array.cons i) rf)
               ev.push 1
               ev.push 2
               ev.push 3
