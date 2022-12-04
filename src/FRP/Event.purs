@@ -68,7 +68,6 @@ import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
-import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn2)
 import Data.Array (deleteBy, length)
 import Data.Array as Array
@@ -348,8 +347,8 @@ subscribePureO :: SubscribePureOT
 subscribePureO = (\(SubscribePureO nt) -> nt) backdoor.subscribePureO
 
 type SubscribePureOT =
-  forall a
-   . STFn2 (Event a) (STFn1 a Global Unit) Global (ST Global Unit)
+  forall a r
+   . STFn2 (Event a) (STFn1 a r Unit) r (ST r Unit)
 
 newtype SubscribePureO = SubscribePureO SubscribePureOT
 
@@ -381,8 +380,8 @@ makeEvent i = (\(MakeEvent nt) -> nt) backdoor.makeEvent i
 
 --
 type MakePureEventT =
-  forall a
-   . ((a -> ST Global Unit) -> ST Global (ST Global Unit))
+  forall a r
+   . ((a -> ST r Unit) -> ST r (ST r Unit))
   -> Event a
 
 newtype MakePureEvent = MakePureEvent MakePureEventT
@@ -408,8 +407,8 @@ makeEventO i = (\(MakeEventO nt) -> nt) backdoor.makeEventO i
 
 --
 type MakeLemmingEventT =
-  forall a
-   . ((forall b. Event b -> (b -> ST Global Unit) -> ST Global (ST Global Unit)) -> (a -> ST Global Unit) -> ST Global (ST Global Unit))
+  forall a r
+   . ((forall b. Event b -> (b -> ST r Unit) -> ST r (ST r Unit)) -> (a -> ST r Unit) -> ST r (ST r Unit))
   -> Event a
 
 newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
@@ -417,11 +416,11 @@ newtype MakeLemmingEvent = MakeLemmingEvent MakeLemmingEventT
 makeLemmingEvent :: MakeLemmingEventT
 makeLemmingEvent i = (\(MakeLemmingEvent nt) -> nt) backdoor.makeLemmingEvent i
 
-newtype Subscriber = Subscriber (forall b. STFn2 (Event b) (STFn1 b Global Unit) Global (ST Global Unit))
+newtype Subscriber = Subscriber (forall b r. STFn2 (Event b) (STFn1 b r Unit) r (ST r Unit))
 
 type MakeLemmingEventOT =
-  forall a
-   . STFn2 Subscriber (STFn1 a Global Unit) Global (ST Global Unit)
+  forall a r
+   . STFn2 Subscriber (STFn1 a r Unit) r (ST r Unit)
   -> Event a
 
 newtype MakeLemmingEventO = MakeLemmingEventO MakeLemmingEventOT
@@ -485,14 +484,14 @@ createPure = do
   pure unit
   (\(CreatePure nt) -> nt) backdoor.createPure
 
-type PureEventIO a =
+type PureEventIO r a =
   { event :: Event a
-  , push :: a -> ST Global Unit
+  , push :: a -> ST r Unit
   }
 
 type CreatePureT =
-  forall a
-   . ST Global (PureEventIO a)
+  forall a r
+   . ST r (PureEventIO r a)
 
 newtype CreatePure = CreatePure CreatePureT
 
