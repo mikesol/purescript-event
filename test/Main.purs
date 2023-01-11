@@ -359,6 +359,28 @@ main = do
               o <- toEffect $ STRef.read r
               o `shouldEqual` [ false, false, true ]
               u
+          describe "Mailbox" do
+            it "should work" $ liftEffect do
+              r <- toEffect $ STRef.new []
+              e <- Event.mailbox
+              u <- Event.subscribe (e.event 3 <|> e.event 4) \i ->
+                liftST $ void $ STRef.modify (Array.cons i) r
+              do
+                e.push { address: 42, payload: true }
+                e.push { address: 43, payload: true }
+                e.push { address: 44, payload: true }
+                e.push { address: 3, payload: true } --
+                e.push { address: 42, payload: false }
+                e.push { address: 43, payload: true }
+                e.push { address: 43, payload: false }
+                e.push { address: 4, payload: false } --
+                e.push { address: 42, payload: false }
+                e.push { address: 43, payload: true }
+                e.push { address: 3, payload: false } --
+                e.push { address: 101, payload: true }
+              o <- toEffect $ STRef.read r
+              o `shouldEqual` [ false, false, true ]
+              u
           describe "Gate" do
             it "should work" $ liftEffect do
               eio <- Event.create

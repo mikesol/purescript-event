@@ -3,13 +3,13 @@ module FRP.Event
   , Bus(..)
   , BusT
   , Create(..)
-  , CreateT
   , CreateO(..)
   , CreateOT
   , CreatePure(..)
-  , CreatePureT
   , CreatePureO(..)
   , CreatePureOT
+  , CreatePureT
+  , CreateT
   , Delay(..)
   , DelayT
   , Event
@@ -17,6 +17,8 @@ module FRP.Event
   , EventIO'
   , Hot(..)
   , HotT
+  , Mailbox(..)
+  , MailboxT
   , Mailboxed(..)
   , MailboxedT
   , MakeEvent(..)
@@ -33,15 +35,15 @@ module FRP.Event
   , MemoizeT
   , PureEventIO
   , PureEventIO'
-  , Subscriber(..)
   , Subscribe(..)
-  , SubscribeT
-  , SubscribePure(..)
-  , SubscribePureT
   , SubscribeO(..)
   , SubscribeOT
+  , SubscribePure(..)
   , SubscribePureO(..)
   , SubscribePureOT
+  , SubscribePureT
+  , SubscribeT
+  , Subscriber(..)
   , backdoor
   , burning
   , bus
@@ -51,6 +53,7 @@ module FRP.Event
   , createPureO
   , delay
   , hot
+  , mailbox
   , mailboxed
   , makeEvent
   , makeEventO
@@ -541,6 +544,46 @@ type MailboxedT = forall r a b. Ord a => Event { address :: a, payload :: b } ->
 
 newtype Mailboxed = Mailboxed MailboxedT
 
+mailbox' :: forall a b. Ord a => Effect { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }
+mailbox' = do
+  r <- Ref.new Map.empty
+  pure
+    { event: \a -> Event $ mkEffectFn2 \_ k2 -> do
+        void $ Ref.modify
+          ( Map.alter
+              ( case _ of
+                  Nothing -> Just [ k2 ]
+                  Just arr -> Just (arr <> [ k2 ])
+              )
+              a
+          )
+          r
+        pure $ void $ Ref.modify
+          ( Map.alter
+              ( case _ of
+                  Nothing -> Nothing
+                  Just arr -> Just (deleteBy unsafeRefEq k2 arr)
+              )
+              a
+          )
+          r
+    , push: mkEffectFn1 \{ address, payload } -> do
+        o <- Ref.read r
+        case Map.lookup address o of
+          Nothing -> pure unit
+          Just arr -> runEffectFn2 fastForeachE arr $ mkEffectFn1 \i -> runEffectFn1 i payload
+    }
+
+-- like mailbox, but in effect
+mailbox :: MailboxT
+mailbox = do
+  pure unit
+  (\(Mailbox nt) -> nt) backdoor.mailbox
+
+type MailboxT = forall a b. Ord a => Effect { push :: { address :: a, payload :: b } -> Effect Unit, event :: a -> Event b }
+
+newtype Mailbox = Mailbox MailboxT
+
 -- | Takes an event and memoizes it within a closure.
 -- | All interactions with the event in the closure will not trigger a fresh
 -- | subscription. Outside the closure does, however, trigger a fresh subscription.
@@ -613,6 +656,7 @@ type Backdoor =
   , memoize :: Memoize
   , hot :: Hot
   , mailboxed :: Mailboxed
+  , mailbox :: Mailbox
   , delay :: Delay
   }
 
@@ -780,39 +824,21 @@ backdoor = do
           pure { event, unsubscribe }
       in
         hot_
+  , mailbox:
+      let
+        mailbox_ :: Mailbox
+        mailbox_ = Mailbox do
+          { push, event } <- mailbox'
+          pure { event, push: \k -> runEffectFn1 push k }
+      in
+        mailbox_
   , mailboxed:
       let
         mailboxed_ :: Mailboxed
-        mailboxed_ = Mailboxed \(Event e) f -> Event $ mkEffectFn2 \tf k1 -> do
-          r <- Ref.new Map.empty
-          runEffectFn1 k1 $ f \a -> Event $ mkEffectFn2 \_ k2 -> do
-            void $ Ref.modify
-              ( Map.alter
-                  ( case _ of
-                      Nothing -> Just [ k2 ]
-                      Just arr -> Just (arr <> [ k2 ])
-                  )
-                  a
-              )
-              r
-            pure $ void $ Ref.modify
-              ( Map.alter
-                  ( case _ of
-                      Nothing -> Nothing
-                      Just arr -> Just (deleteBy unsafeRefEq k2 arr)
-                  )
-                  a
-              )
-              r
-          unsub <- runEffectFn2 e tf $ mkEffectFn1 \{ address, payload } -> do
-            o <- Ref.read r
-            case Map.lookup address o of
-              Nothing -> pure unit
-              Just arr -> runEffectFn2 fastForeachE arr $ mkEffectFn1 \i -> runEffectFn1 i payload
-          pure do
-            -- free references - helps gc?
-            void $ Ref.write (Map.empty) r
-            unsub
+        mailboxed_ = Mailboxed \(Event e) f -> Event $ mkEffectFn2 \b k -> do
+          { push, event } <- mailbox'
+          runEffectFn1 k (f event)
+          runEffectFn2 e b push
       in
         mailboxed_
   , delay:
