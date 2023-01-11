@@ -25,7 +25,7 @@ newtype Keyboard = Keyboard
   { keys :: Ref.Ref (Set.Set String)
   , dispose :: Effect Unit
   }
-  
+
 -- | Get a handle for working with the keyboard.
 getKeyboard :: Effect Keyboard
 getKeyboard = do
@@ -39,9 +39,10 @@ getKeyboard = do
       Ref.modify (Set.delete (code ke)) keys
   addEventListener (wrap "keydown") keyDownListener false target
   addEventListener (wrap "keyup") keyUpListener false target
-  let dispose = do
-        removeEventListener (wrap "keydown") keyDownListener false target
-        removeEventListener (wrap "keyup") keyUpListener false target
+  let
+    dispose = do
+      removeEventListener (wrap "keydown") keyDownListener false target
+      removeEventListener (wrap "keyup") keyUpListener false target
   pure (Keyboard { keys, dispose })
 
 disposeKeyboard :: Keyboard -> Effect Unit

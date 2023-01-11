@@ -124,8 +124,8 @@ gateBy
   -> event b
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
-  <$> (pure Nothing <|> Just <$> sampled)
-  <|*> sampler
+    <$> (pure Nothing <|> Just <$> sampled)
+    <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b

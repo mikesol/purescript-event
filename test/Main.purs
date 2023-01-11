@@ -203,6 +203,7 @@ main = do
             let
               x :: Array (Tuple Int Int)
               x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
+
               e :: Event (Tuple Int Int)
               e = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
             r <- toEffect $ STRef.new []
@@ -533,7 +534,6 @@ main = do
               a <- Ref.read rf
               _ <- unsafeBackdoor old backdoor
               shouldEqual a [ 3, 2, 1 ]
-
 
           describe "Lemming" do
             it "follows like a lemming" $ liftEffect do

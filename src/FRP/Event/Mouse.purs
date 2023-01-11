@@ -49,10 +49,11 @@ getMouse = do
   addEventListener (wrap "mousemove") mouseMoveListener false target
   addEventListener (wrap "mousedown") mouseDownListener false target
   addEventListener (wrap "mouseup") mouseUpListener false target
-  let dispose = do
-        removeEventListener (wrap "mousemove") mouseMoveListener false target
-        removeEventListener (wrap "mousedown") mouseDownListener false target
-        removeEventListener (wrap "mouseup") mouseUpListener false target
+  let
+    dispose = do
+      removeEventListener (wrap "mousemove") mouseMoveListener false target
+      removeEventListener (wrap "mousedown") mouseDownListener false target
+      removeEventListener (wrap "mouseup") mouseUpListener false target
   pure (Mouse { position, buttons, dispose })
 
 disposeMouse :: Mouse -> Effect Unit
