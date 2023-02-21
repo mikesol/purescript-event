@@ -16,7 +16,7 @@ import Data.Filterable (filter)
 import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
-import Data.Traversable (foldr, for_, oneOf, sequence)
+import Data.Traversable (foldr, for_, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
 import Effect (Effect)
@@ -26,7 +26,7 @@ import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (ABehavior, Behavior, behavior, gate)
-import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), Subscriber(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, sampleOnRight, subscribe)
+import FRP.Event (Backdoor, Event, EventIO, MakeEvent(..), Subscriber(..), backdoor, hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
 import FRP.Event.Time (debounce, interval)
@@ -236,7 +236,7 @@ main = do
               starts <- getTime <$> now
               r <- toEffect $ STRef.new []
               { push, event } <- Event.create
-              let e = oneOf $ replicate 100 $ foldr ($) event (replicate 10 (map (add 1)))
+              let e = merge $ replicate 100 $ foldr ($) event (replicate 10 (map (add 1)))
               u <- subscribe e \i -> liftST $ void $ STRef.modify (Array.cons i) r
               for_ (replicate 100 3) push
               u

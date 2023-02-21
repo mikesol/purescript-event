@@ -47,6 +47,7 @@ module FRP.Event
   , backdoor
   , burning
   , bus
+  , merge
   , create
   , createO
   , createPure
@@ -82,7 +83,8 @@ import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable as Filterable
-import Data.Foldable (for_)
+import Data.Foldable (class Foldable, for_)
+import Data.Foldable as M
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Map as Map
 import Data.Maybe (Maybe(..), maybe)
@@ -159,6 +161,12 @@ instance altEvent :: Alt Event where
         do
           c1
           c2
+
+-- | Merge together several events. This has the same functionality
+-- | as `oneOf`, but it is faster and less prone to stack explosions.
+merge :: forall f a. Foldable f => f (Event a) → Event a
+merge f = Event $ mkEffectFn2 \tf k ->
+  M.foldMap (\(Event i) -> runEffectFn2 i tf k) f
 
 instance plusEvent :: Plus Event where
   empty = Event (mkEffectFn2 \_ _ -> pure (pure unit))
