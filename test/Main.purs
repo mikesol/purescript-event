@@ -25,7 +25,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (ABehavior, Behavior, behavior, gate)
+import FRP.Behavior (ABehavior, Behavior, behavior, fixB, gate, sample_)
 import FRP.Event (Event, EventIO, Subscriber(..), hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
@@ -481,6 +481,21 @@ main = do
                 o <- Ref.read rf
                 o `shouldEqual` [ 5, 1 ]
                 unsub
+
+          describe "FixB" do
+            it "should work" do
+              { event, push } <- liftEffect Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftEffect $ Event.subscribe (sample_ (fixB 0 (map (add 1))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                push unit
+                push unit
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [ 4, 3, 2, 1 ]
+                unsub
+
           describe "Purity" do
             it "Preserves purity when asked for, otherwise not" $ liftEffect do
               let event = (makeEvent \k -> k 1 *> (pure (pure unit))) <|> (makePureEvent \k -> k 42 *> (pure (pure unit))) <|> (makeEvent \k -> k 108 *> (pure (pure unit))) <|> (makePureEvent \k -> k 333 *> (pure (pure unit)))
