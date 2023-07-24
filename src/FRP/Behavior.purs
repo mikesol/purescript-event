@@ -35,6 +35,8 @@ import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
+import Effect.Aff (Aff, launchAff_)
+import Effect.Class (liftEffect)
 import Effect.Exception (Error)
 import Effect.Uncurried (mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event (Event, fold, makeEventO, subscribe, subscribeO)
@@ -45,7 +47,7 @@ import FRP.Event.AnimationFrame (animationFrame)
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-data Behavior a = Behavior (Error -> ST Global a) (Effect (Tuple (Effect Unit) (Effect a)))
+data Behavior a = Behavior (Error -> ST Global a) (Effect (Tuple (Effect Unit) (Aff a)))
 
 derive instance functorBehavior :: Functor Behavior
 
@@ -82,7 +84,7 @@ instance ringBehavior :: Ring a => Ring (Behavior a) where
   sub = lift2 sub
 
 -- | Construct a `Behavior` from its sampling function.
-behavior :: forall a. (Error -> ST Global a) -> Effect (Tuple (Effect Unit) (Effect a)) -> Behavior a
+behavior :: forall a. (Error -> ST Global a) -> Effect (Tuple (Effect Unit) (Aff a)) -> Behavior a
 behavior = Behavior
 
 write_ :: forall region a. a -> STRef region a -> ST region Unit
@@ -91,10 +93,10 @@ write_ a b = void $ write a b
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall a. a -> Event a -> Behavior a
-step a e = Behavior (const $ pure a) do
+step a e = Behavior (const $ pure a) $ do
   r <- liftST $ new a
   u <- runEffectFn2 subscribeO e (mkEffectFn1 (liftST <<< flip write_ r))
-  pure (Tuple u (liftST $ read r))
+  pure (Tuple u (liftEffect $ liftST $ read r))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -106,9 +108,9 @@ unfold f a e = step a (fold f a e)
 sample :: forall a b. Behavior a -> Event (a -> b) -> Event b
 sample (Behavior erra ea) eAb = makeEventO $ mkEffectFn1 \k -> do
   Tuple ua ba <- ea
-  u <- runEffectFn2 subscribeO eAb $ mkEffectFn1 \ab -> do
-    a <- catchError ba (liftST <$> erra)
-    runEffectFn1 k (ab a)
+  u <- runEffectFn2 subscribeO eAb $ mkEffectFn1 \ab -> launchAff_ do
+    a <- catchError ba ((liftEffect <<< liftST) <$> erra)
+    liftEffect $ runEffectFn1 k (ab a)
   pure do
     ua
     u
@@ -224,17 +226,6 @@ derivative g t b = map fst $ fixB (Tuple zero Nothing)
             )
       ) <$> prev <*> (Tuple <$> t <*> b)
   )
-
--- Behavior \e ->
---   let
---     x = sample b (e $> identity)
---     y = withLast (sampleBy Tuple t x)
---     z = map approx y
---   in
---     sampleOnRight z e
--- where
--- approx { last: Nothing } = zero
--- approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
 
 -- | Differentiate with respect to some measure of time.
 -- |

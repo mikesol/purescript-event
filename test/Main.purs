@@ -25,7 +25,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (Behavior, behavior, fixB, gate, sample_)
+import FRP.Behavior (Behavior, behavior, derivative', fixB, gate, integral', sample_)
 import FRP.Event (Event, EventIO, Subscriber(..), hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
@@ -479,6 +479,33 @@ main = do
                 o `shouldEqual` [ 5, 1 ]
                 unsub
 
+          describe "derivative" do
+            it "should give some sane approximation" do
+              { event, push } <- liftEffect Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftEffect $ Event.subscribe (sample_ (derivative' (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                push unit
+                push unit
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [54.0,18.0,6.0,0.0]
+                unsub
+
+          describe "integral" do
+            it "should give some sane approximation" do
+              { event, push } <- liftEffect Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftEffect $ Event.subscribe (sample_ (integral' 42.0 (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                push unit
+                push unit
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [120.0,66.0,48.0,42.0]
+                unsub
           describe "FixB" do
             it "should work" do
               { event, push } <- liftEffect Event.create

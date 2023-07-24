@@ -11,6 +11,7 @@ import Data.DateTime.Instant as Instant
 import Data.Maybe (Maybe(..))
 import Data.Time.Duration (Milliseconds(..), Seconds, toDuration)
 import Data.Tuple (Tuple(..))
+import Effect.Class (liftEffect)
 import Effect.Now (now)
 import FRP.Behavior (Behavior, behavior)
 
@@ -21,7 +22,7 @@ instant = behavior
       Nothing -> go e
       Just x -> pure x
   )
-  (pure (Tuple (pure unit) now))
+  (pure (Tuple (pure unit) $ liftEffect now))
 
 -- | Get the current time in seconds since the epoch.
 seconds :: Behavior Seconds
