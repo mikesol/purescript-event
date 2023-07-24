@@ -660,4 +660,3 @@ delay n (Event e) = Event $ mkEffectFn2 \tf k -> do
     ids <- ERef.read tid
     for_ ids clearTimeout
     canceler
-

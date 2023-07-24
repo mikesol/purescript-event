@@ -217,17 +217,13 @@ derivative'
 derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
-fixB :: forall a. (Behavior a -> Behavior a) -> Behavior a
-fixB f =
-  behavior \s ->
-    sampleOnRight
-      ( fix \event ->
-          let
-            b = f (step a event)
-          in
-            sample_ b s
-      )
-      s
+fixB :: forall a. a -> (Behavior a -> Behavior a) -> Behavior a
+fixB a f =
+  behavior do
+  r <- new a
+  u <- runEffectFn2 subscribeO e (mkEffectFn1 (flip write r))
+  pure (Tuple (read r) u)
+    
 
 -- | Solve a first order differential equation of the form
 -- |
