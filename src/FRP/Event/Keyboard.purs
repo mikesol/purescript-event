@@ -1,5 +1,5 @@
 module FRP.Event.Keyboard
-  ( Keyboard
+  ( Keyboard(..)
   , getKeyboard
   , disposeKeyboard
   , down

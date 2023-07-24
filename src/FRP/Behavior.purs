@@ -23,18 +23,16 @@ module FRP.Behavior
 
 import Prelude
 
-import Control.Alt (alt)
 import Control.Apply (lift2)
-import Control.Monad.Error.Class (catchError)
-import Data.Filterable (class Filterable, compact)
+import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
-import Effect.Ref (new, read, write)
-import Effect.Uncurried (mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2)
-import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, makeEvent, makeEventO, sampleOnRight, subscribe, subscribeO, withLast)
+import Effect.Ref (modify, new, read, write)
+import Effect.Uncurried (mkEffectFn1, runEffectFn1, runEffectFn2)
+import FRP.Event (Event, fold, makeEventO, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
 
 -- | `ABehavio
@@ -42,15 +40,18 @@ import FRP.Event.AnimationFrame (animationFrame)
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-newtype Behavior a = Behavior (Effect (Tuple (Effect a) (Effect Unit)))
+newtype Behavior a = Behavior (Effect (Tuple (Effect Unit) (Effect a)))
 
 derive instance functorBehavior :: Functor Behavior
 
 instance applyBehavior :: Apply Behavior where
-  apply (Behavior efab) (Behavior ea) = Behavior (lift2 Tuple efab ea)
+  apply (Behavior efab) (Behavior ea) = Behavior do
+    Tuple ua a <- ea
+    Tuple ub ab <- efab
+    pure $ Tuple (ub *> ua) (ab <*> a)
 
 instance applicativeBehavior :: Applicative Behavior where
-  pure a = Behavior \e -> applyFlipped a <$> e
+  pure a = Behavior (pure (Tuple (pure unit) (pure a)))
 
 instance semigroupBehavior :: Semigroup a => Semigroup (Behavior a) where
   append = lift2 append
@@ -76,7 +77,7 @@ instance ringBehavior :: Ring a => Ring (Behavior a) where
   sub = lift2 sub
 
 -- | Construct a `Behavior` from its sampling function.
-behavior :: forall a. Effect (Tuple (Effect a) (Effect Unit)) -> Behavior a
+behavior :: forall a. Effect (Tuple (Effect Unit) (Effect a)) -> Behavior a
 behavior = Behavior
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
@@ -85,7 +86,7 @@ step :: forall a. a -> Event a -> Behavior a
 step a e = Behavior do
   r <- new a
   u <- runEffectFn2 subscribeO e (mkEffectFn1 (flip write r))
-  pure (Tuple (read r) u)
+  pure (Tuple u (read r))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -96,7 +97,7 @@ unfold f a e = step a (fold f a e)
 -- | Sample a `Behavior` on some `Event`.
 sample :: forall a b. Behavior a -> Event (a -> b) -> Event b
 sample (Behavior ea) eAb = makeEventO $ mkEffectFn1 \k -> do
-  Tuple ba ua <- ea
+  Tuple ua ba <- ea
   u <- runEffectFn2 subscribeO eAb $ mkEffectFn1 \ab -> do
     a <- ba
     runEffectFn1 k (ab a)
@@ -114,8 +115,20 @@ sample_ = sampleBy const
 
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall a. Behavior a -> Event (Behavior a) -> Behavior a
-switcher b0 e = behavior \s ->
-  keepLatest (pure (sample b0 s) `alt` map (\b -> sample b s) e)
+switcher (Behavior b0) e = behavior do
+  r <- b0 >>= new
+  u <- runEffectFn2 subscribeO e $ mkEffectFn1 \(Behavior b) -> do
+    Tuple x _ <- read r
+    x
+    b >>= flip write r
+  let
+    l = do
+      Tuple x _ <- read r
+      x
+      u
+  pure $ Tuple l do
+    Tuple _ x <- read r
+    x
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall p a. (p -> a -> Boolean) -> Behavior p -> Event a -> Event a
@@ -135,27 +148,32 @@ gate = gateBy const
 -- | function on `t` to a function on `a`. Simple examples where `t ~ a` can use
 -- | the `integral'` function instead.
 integral
-  :: forall event a t
-   . IsEvent event
-  => Field t
+  :: forall a t
+   . Field t
   => Semiring a
   => (((a -> t) -> t) -> a)
   -> a
   -> Behavior t
   -> Behavior a
   -> Behavior a
-integral g initial t b =
-  Behavior \e ->
-    let
-      x = sample b (e $> identity)
-      y = withLast (sampleBy Tuple t x)
-      z = fold approx initial y
-    in
-      sampleOnRight z e
+integral g initial t b = map fst $ fixB (Tuple initial Nothing)
+  ( \prev ->
+      ( \(Tuple s x) (Tuple t1 a1) -> case x of
+          Nothing -> Tuple s (Just (Tuple t1 a1))
+          Just (Tuple t0 a0) -> Tuple (s + g (\f -> f (a0 + a1) * (t1 - t0) / two)) (Just (Tuple t1 a1))
+      ) <$> prev <*> (Tuple <$> t <*> b)
+  )
+  -- Behavior \e ->
+  --   let
+  --     x = sample b (e $> identity)
+  --     y = withLast (sampleBy Tuple t x)
+  --     z = fold approx initial y
+  --   in
+  --     sampleOnRight z e
+  -- where
+  -- approx s { last: Nothing } = s
+  -- approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
   where
-  approx s { last: Nothing } = s
-  approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
-
   two :: t
   two = one + one
 
@@ -164,9 +182,8 @@ integral g initial t b =
 -- | This function is a simpler version of `integral` where the function being
 -- | integrated takes values in the same field used to represent time.
 integral'
-  :: forall event t
-   . IsEvent event
-  => Field t
+  :: forall t
+   . Field t
   => t
   -> Behavior t
   -> Behavior t
@@ -183,34 +200,41 @@ integral' = integral (_ $ identity)
 -- | function on `t` to a function on `a`. Simple examples where `t ~ a` can use
 -- | the `derivative'` function.
 derivative
-  :: forall event a t
-   . IsEvent event
-  => Field t
+  :: forall a t
+   . Field t
   => Ring a
   => (((a -> t) -> t) -> a)
   -> Behavior t
   -> Behavior a
   -> Behavior a
-derivative g t b =
-  Behavior \e ->
-    let
-      x = sample b (e $> identity)
-      y = withLast (sampleBy Tuple t x)
-      z = map approx y
-    in
-      sampleOnRight z e
-  where
-  approx { last: Nothing } = zero
-  approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
+derivative g t b = map fst $ fixB (Tuple zero Nothing)
+  ( \prev ->
+      ( \(Tuple _ x) (Tuple t1 a1) -> case x of
+          Nothing -> Tuple zero (Just (Tuple t1 a1))
+          Just (Tuple t0 a0) -> Tuple (g (\f -> f (a1 - a0) / (t1 - t0)))
+            ( Just (Tuple t1 a1)
+            )
+      ) <$> prev <*> (Tuple <$> t <*> b)
+  )
+
+-- Behavior \e ->
+--   let
+--     x = sample b (e $> identity)
+--     y = withLast (sampleBy Tuple t x)
+--     z = map approx y
+--   in
+--     sampleOnRight z e
+-- where
+-- approx { last: Nothing } = zero
+-- approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
 
 -- | Differentiate with respect to some measure of time.
 -- |
 -- | This function is a simpler version of `derivative` where the function being
 -- | differentiated takes values in the same field used to represent time.
 derivative'
-  :: forall event t
-   . IsEvent event
-  => Field t
+  :: forall t
+   . Field t
   => Behavior t
   -> Behavior t
   -> Behavior t
@@ -218,12 +242,14 @@ derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
 fixB :: forall a. a -> (Behavior a -> Behavior a) -> Behavior a
-fixB a f =
-  behavior do
-  r <- new a
-  u <- runEffectFn2 subscribeO e (mkEffectFn1 (flip write r))
-  pure (Tuple (read r) u)
-    
+fixB a f = Behavior do
+  b <- new a
+  let
+    Behavior o = f $ Behavior $ pure do
+      Tuple (pure unit) (read b)
+  Tuple u x <- o
+  pure $ Tuple u do
+    x >>= flip modify b <<< const
 
 -- | Solve a first order differential equation of the form
 -- |
@@ -309,7 +335,7 @@ solve2' = solve2 (_ $ identity)
 -- | Animate a `Behavior` by providing a rendering function.
 animate
   :: forall scene
-   . Behavior Event scene
+   . Behavior scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
 animate scene render = subscribe (sample_ scene animationFrame) render

@@ -7,12 +7,13 @@ import Prelude
 
 import Data.DateTime.Instant (Instant, unInstant)
 import Data.Time.Duration (Seconds, toDuration)
+import Data.Tuple (Tuple(..))
+import Effect.Now (now)
 import FRP.Behavior (Behavior, behavior)
-import FRP.Event.Time (withTime)
 
 -- | Get the current time in milliseconds since the epoch.
 instant :: Behavior Instant
-instant = behavior \e -> map (\{ value, time: t } -> value t) (withTime e)
+instant = behavior (pure (Tuple (pure unit) now))
 
 -- | Get the current time in seconds since the epoch.
 seconds :: Behavior Seconds

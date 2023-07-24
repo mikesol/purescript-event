@@ -25,7 +25,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (ABehavior, Behavior, behavior, fixB, gate, sample_)
+import FRP.Behavior (Behavior, behavior, fixB, gate, sample_)
 import FRP.Event (Event, EventIO, Subscriber(..), hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
@@ -39,12 +39,10 @@ import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
 
 refToBehavior :: Ref.Ref ~> Behavior
-refToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f -> Ref.read r >>=
-  (k <<< f)
+refToBehavior r = behavior $ pure $ Tuple (pure unit) (Ref.read r)
 
-stRefToBehavior :: STRef Global ~> ABehavior Event
-stRefToBehavior r = behavior \e -> makeEvent \k -> Event.subscribe e \f ->
-  liftST (STRef.read r) >>= (k <<< f)
+stRefToBehavior :: STRef Global ~> Behavior
+stRefToBehavior r = behavior $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ STRef.modify a b

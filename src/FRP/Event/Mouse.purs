@@ -1,5 +1,5 @@
 module FRP.Event.Mouse
-  ( Mouse
+  ( Mouse(..)
   , getMouse
   , disposeMouse
   , move
