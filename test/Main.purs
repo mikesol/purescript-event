@@ -38,11 +38,10 @@ import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
 
-refToBehavior :: Ref.Ref ~> Behavior
-refToBehavior r = behavior $ pure $ Tuple (pure unit) (Ref.read r)
-
-stRefToBehavior :: STRef Global ~> Behavior
-stRefToBehavior r = behavior $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
+refToBehavior :: STRef Global ~> Behavior
+refToBehavior r = do
+  let f = liftST (STRef.read r)
+  behavior (const f) $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ STRef.modify a b
@@ -382,7 +381,7 @@ main = do
               eio <- Event.create
               r <- toEffect $ STRef.new false
               n <- toEffect $ STRef.new 0
-              let b = stRefToBehavior r
+              let b = refToBehavior r
               _ <- Event.subscribe (gate b eio.event) \_ ->
                 liftST $ void $ STRef.modify (add 1) n
               do

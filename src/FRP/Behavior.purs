@@ -24,13 +24,18 @@ module FRP.Behavior
 import Prelude
 
 import Control.Apply (lift2)
+import Control.Monad.Error.Class (catchError)
+import Control.Monad.ST (ST)
+import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Ref (STRef, modify, new, read, write)
 import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
-import Effect.Ref (modify, new, read, write)
+import Effect.Exception (Error)
 import Effect.Uncurried (mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event (Event, fold, makeEventO, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
@@ -40,18 +45,18 @@ import FRP.Event.AnimationFrame (animationFrame)
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-newtype Behavior a = Behavior (Effect (Tuple (Effect Unit) (Effect a)))
+data Behavior a = Behavior (Error -> ST Global a) (Effect (Tuple (Effect Unit) (Effect a)))
 
 derive instance functorBehavior :: Functor Behavior
 
 instance applyBehavior :: Apply Behavior where
-  apply (Behavior efab) (Behavior ea) = Behavior do
+  apply (Behavior errfab efab) (Behavior erra ea) = Behavior (lift2 apply errfab erra) do
     Tuple ua a <- ea
     Tuple ub ab <- efab
     pure $ Tuple (ub *> ua) (ab <*> a)
 
 instance applicativeBehavior :: Applicative Behavior where
-  pure a = Behavior (pure (Tuple (pure unit) (pure a)))
+  pure a = Behavior (const $ pure a) (pure (Tuple (pure unit) (pure a)))
 
 instance semigroupBehavior :: Semigroup a => Semigroup (Behavior a) where
   append = lift2 append
@@ -77,16 +82,19 @@ instance ringBehavior :: Ring a => Ring (Behavior a) where
   sub = lift2 sub
 
 -- | Construct a `Behavior` from its sampling function.
-behavior :: forall a. Effect (Tuple (Effect Unit) (Effect a)) -> Behavior a
+behavior :: forall a. (Error -> ST Global a) -> Effect (Tuple (Effect Unit) (Effect a)) -> Behavior a
 behavior = Behavior
+
+write_ :: forall region a. a -> STRef region a -> ST region Unit
+write_ a b = void $ write a b
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall a. a -> Event a -> Behavior a
-step a e = Behavior do
-  r <- new a
-  u <- runEffectFn2 subscribeO e (mkEffectFn1 (flip write r))
-  pure (Tuple u (read r))
+step a e = Behavior (const $ pure a) do
+  r <- liftST $ new a
+  u <- runEffectFn2 subscribeO e (mkEffectFn1 (liftST <<< flip write_ r))
+  pure (Tuple u (liftST $ read r))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -96,10 +104,10 @@ unfold f a e = step a (fold f a e)
 
 -- | Sample a `Behavior` on some `Event`.
 sample :: forall a b. Behavior a -> Event (a -> b) -> Event b
-sample (Behavior ea) eAb = makeEventO $ mkEffectFn1 \k -> do
+sample (Behavior erra ea) eAb = makeEventO $ mkEffectFn1 \k -> do
   Tuple ua ba <- ea
   u <- runEffectFn2 subscribeO eAb $ mkEffectFn1 \ab -> do
-    a <- ba
+    a <- catchError ba (liftST <$> erra)
     runEffectFn1 k (ab a)
   pure do
     ua
@@ -115,20 +123,20 @@ sample_ = sampleBy const
 
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall a. Behavior a -> Event (Behavior a) -> Behavior a
-switcher (Behavior b0) e = behavior do
-  r <- b0 >>= new
-  u <- runEffectFn2 subscribeO e $ mkEffectFn1 \(Behavior b) -> do
-    Tuple x _ <- read r
+switcher (Behavior ef b0) e = behavior ef do
+  r <- b0 >>= liftST <<< new <<< Tuple ef
+  u <- runEffectFn2 subscribeO e $ mkEffectFn1 \(Behavior eef b) -> do
+    Tuple _ (Tuple x _) <- liftST $ read r
     x
-    b >>= flip write r
+    b >>= liftST <<< flip write_ r <<< Tuple eef
   let
     l = do
-      Tuple x _ <- read r
+      Tuple _ (Tuple x _) <- liftST $ read r
       x
       u
   pure $ Tuple l do
-    Tuple _ x <- read r
-    x
+    Tuple eef (Tuple _ x) <- liftST $ read r
+    catchError x (liftST <$> eef)
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall p a. (p -> a -> Boolean) -> Behavior p -> Event a -> Event a
@@ -242,14 +250,15 @@ derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
 fixB :: forall a. a -> (Behavior a -> Behavior a) -> Behavior a
-fixB a f = Behavior do
-  b <- new a
+fixB a f = Behavior (const $ pure a) do
+  b <- liftST $ new a
   let
-    Behavior o = f $ Behavior $ pure do
-      Tuple (pure unit) (read b)
+    -- todo, we need to use this more intelligently going forward
+    Behavior ef o = f $ Behavior (const $ read b) $ pure do
+      Tuple (pure unit) (liftST $ read b)
   Tuple u x <- o
   pure $ Tuple u do
-    x >>= flip modify b <<< const
+    catchError x (liftST <$> ef) >>= liftST <<< flip modify b <<< const
 
 -- | Solve a first order differential equation of the form
 -- |

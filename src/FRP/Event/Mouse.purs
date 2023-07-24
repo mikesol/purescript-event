@@ -11,13 +11,15 @@ module FRP.Event.Mouse
 
 import Prelude
 
+import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Ref as Ref
 import Data.Compactable (compact)
 import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (wrap)
 import Data.Set as Set
 import Effect (Effect)
-import Effect.Ref as Ref
 import FRP.Event (Event, makeEvent, subscribe)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
@@ -26,26 +28,26 @@ import Web.UIEvent.MouseEvent (button, clientX, clientY, fromEvent)
 
 -- | A handle for creating events from the mouse position and buttons.
 newtype Mouse = Mouse
-  { position :: Ref.Ref (Maybe { x :: Int, y :: Int })
-  , buttons :: Ref.Ref (Set.Set Int)
+  { position :: Ref.STRef Global (Maybe { x :: Int, y :: Int })
+  , buttons :: Ref.STRef Global (Set.Set Int)
   , dispose :: Effect Unit
   }
 
 -- | Get a handle for working with the mouse.
 getMouse :: Effect Mouse
 getMouse = do
-  position <- Ref.new Nothing
-  buttons <- Ref.new Set.empty
+  position <- liftST $ Ref.new Nothing
+  buttons <- liftST $ Ref.new Set.empty
   target <- toEventTarget <$> window
   mouseMoveListener <- eventListener \e -> do
     fromEvent e # traverse_ \me ->
-      Ref.write (Just { x: clientX me, y: clientY me }) position
+      void $ liftST $ Ref.write (Just { x: clientX me, y: clientY me }) position
   mouseDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \me ->
-      Ref.modify (Set.insert (button me)) buttons
+      liftST $ Ref.modify (Set.insert (button me)) buttons
   mouseUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \me ->
-      Ref.modify (Set.delete (button me)) buttons
+      liftST $ Ref.modify (Set.delete (button me)) buttons
   addEventListener (wrap "mousemove") mouseMoveListener false target
   addEventListener (wrap "mousedown") mouseDownListener false target
   addEventListener (wrap "mouseup") mouseUpListener false target
@@ -91,7 +93,7 @@ withPosition
   -> Event { value :: a, pos :: Maybe { x :: Int, y :: Int } }
 withPosition (Mouse { position }) e = makeEvent \k ->
   e `subscribe` \value -> do
-    pos <- Ref.read position
+    pos <- liftST $ Ref.read position
     k { value, pos }
 
 -- | Create an event which also returns the current mouse buttons.
@@ -102,5 +104,5 @@ withButtons
   -> Event { value :: a, buttons :: Set.Set Int }
 withButtons (Mouse { buttons }) e = makeEvent \k ->
   e `subscribe` \value -> do
-    buttonsValue <- Ref.read buttons
+    buttonsValue <- liftST $ Ref.read buttons
     k { value, buttons: buttonsValue }
