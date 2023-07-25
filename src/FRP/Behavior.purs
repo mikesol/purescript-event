@@ -7,6 +7,8 @@ module FRP.Behavior
   , sample_
   , gate
   , gateBy
+  , stRefToBehavior
+  , refToBehavior
   , unfold
   , switcher
   , integral
@@ -24,13 +26,17 @@ module FRP.Behavior
 import Prelude
 
 import Control.Apply (lift2)
-import Effect.Ref (modify, new, read, write)
+import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Ref (STRef)
+import Control.Monad.ST.Ref as STRef
 import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
+import Effect.Ref (Ref, modify, new, read, write)
 import Effect.Uncurried (mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event (Event, fold, makeEventO, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
@@ -149,6 +155,18 @@ gateBy f ps xs = compact (sampleBy (\p x -> if f p x then Just x else Nothing) p
 -- | Filter an `Event` by the boolean value of a `Behavior`.
 gate :: forall a. Behavior Boolean -> Event a -> Event a
 gate = gateBy const
+
+
+-- | Turn an ST Ref into a behavior
+stRefToBehavior :: STRef Global ~> Behavior
+stRefToBehavior r = do
+  behavior $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
+
+
+-- | Turn a Ref into a behavior
+refToBehavior :: Ref ~> Behavior
+refToBehavior r = do
+  behavior $ pure $ Tuple (pure unit) (read r) 
 
 -- | Integrate with respect to some measure of time.
 -- |

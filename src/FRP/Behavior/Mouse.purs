@@ -6,9 +6,8 @@ module FRP.Behavior.Mouse
 
 import Data.Maybe (Maybe)
 import Data.Set as Set
-import FRP.Behavior (Behavior)
+import FRP.Behavior (Behavior, refToBehavior)
 import FRP.Event.Mouse (Mouse(..))
-import Test.Main (refToBehavior)
 
 -- | A `Behavior` which reports the current mouse position, if it is known.
 position :: Mouse -> Behavior (Maybe { x :: Int, y :: Int })

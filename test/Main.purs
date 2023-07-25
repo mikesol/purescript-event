@@ -5,7 +5,7 @@ import Prelude
 import Control.Alt ((<|>))
 import Control.Monad.ST (ST, run)
 import Control.Monad.ST.Class (liftST)
-import Control.Monad.ST.Global (Global, toEffect)
+import Control.Monad.ST.Global (toEffect)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
 import Control.Monad.ST.Uncurried (mkSTFn2, runSTFn2)
@@ -25,7 +25,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1, runEffectFn2)
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (Behavior, Behavior, behavior, derivative', fixB, gate, integral', sample_)
+import FRP.Behavior (derivative', fixB, gate, integral', sample_, stRefToBehavior)
 import FRP.Event (Event, EventIO, Subscriber(..), hot, keepLatest, mailboxed, makeEvent, makePureEvent, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
@@ -37,11 +37,6 @@ import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
 import Test.Spec.Runner (runSpec)
 import Type.Proxy (Proxy(..))
-
-refToBehavior :: STRef Global ~> Behavior
-refToBehavior r = do
-  let f = liftST (STRef.read r)
-  behavior (const f) $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
 
 modify__ :: forall a r. (a -> a) -> STRef r a -> ST r Unit
 modify__ a b = void $ STRef.modify a b
@@ -381,7 +376,7 @@ main = do
               eio <- Event.create
               r <- toEffect $ STRef.new false
               n <- toEffect $ STRef.new 0
-              let b = refToBehavior r
+              let b = stRefToBehavior r
               _ <- Event.subscribe (gate b eio.event) \_ ->
                 liftST $ void $ STRef.modify (add 1) n
               do

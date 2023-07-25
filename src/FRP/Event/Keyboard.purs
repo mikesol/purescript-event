@@ -9,9 +9,7 @@ module FRP.Event.Keyboard
 
 import Prelude
 
-import Control.Monad.ST.Class (liftST)
-import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Ref as Ref
+import Effect.Ref as Ref
 import Data.Foldable (traverse_)
 import Data.Newtype (wrap)
 import Data.Set as Set
@@ -24,21 +22,21 @@ import Web.UIEvent.KeyboardEvent (code, fromEvent)
 
 -- | A handle for creating events from the keyboard.
 newtype Keyboard = Keyboard
-  { keys :: Ref.STRef Global (Set.Set String)
+  { keys :: Ref.Ref (Set.Set String)
   , dispose :: Effect Unit
   }
 
 -- | Get a handle for working with the keyboard.
 getKeyboard :: Effect Keyboard
 getKeyboard = do
-  keys <- liftST $ Ref.new Set.empty
+  keys <- Ref.new Set.empty
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      liftST $ Ref.modify (Set.insert (code ke)) keys
+      Ref.modify (Set.insert (code ke)) keys
   keyUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      liftST $ Ref.modify (Set.delete (code ke)) keys
+      Ref.modify (Set.delete (code ke)) keys
   addEventListener (wrap "keydown") keyDownListener false target
   addEventListener (wrap "keyup") keyUpListener false target
   let
@@ -78,5 +76,5 @@ withKeys
   -> Event { value :: a, keys :: Set.Set String }
 withKeys (Keyboard { keys }) e = makeEvent \k ->
   e `subscribe` \value -> do
-    keysValue <- liftST $ Ref.read keys
+    keysValue <- Ref.read keys
     k { value, keys: keysValue }

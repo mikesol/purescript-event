@@ -6,9 +6,8 @@ module FRP.Behavior.Keyboard
 import Prelude
 
 import Data.Set as Set
-import FRP.Behavior (Behavior)
+import FRP.Behavior (Behavior, refToBehavior)
 import FRP.Event.Keyboard (Keyboard(..))
-import Test.Main (refToBehavior)
 
 -- | A `Behavior` which reports the keys which are currently pressed.
 keys :: Keyboard -> Behavior (Set.Set String)
