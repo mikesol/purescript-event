@@ -45,7 +45,7 @@ import FRP.Event.AnimationFrame (animationFrame)
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-data Behavior a = Behavior (Effect (Tuple (Effect Unit) (Effect a)))
+newtype Behavior a = Behavior (Effect (Tuple (Effect Unit) (Effect a)))
 
 instance functorBehavior :: Functor Behavior where
   map f (Behavior ea) = Behavior (map (map (map f)) ea)
