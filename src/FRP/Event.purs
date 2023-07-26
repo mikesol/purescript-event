@@ -3,6 +3,7 @@ module FRP.Event
   , EventIO
   , EventIO'
   , Subscriber(..)
+  , memoize
   , create
   , createO
   , delay
@@ -338,7 +339,6 @@ subscribePure (Event e) k = runSTFn1 e (mkEffectFn1 (stPusherToEffectPusher k))
 
 newtype Subscriber = Subscriber (forall b. STFn2 (Event b) (EffectFn1 b Unit) Global (ST Global Unit))
 
-
 type EventIO a =
   { event :: Event a
   , push :: a -> Effect Unit
@@ -415,6 +415,16 @@ createO
   :: forall a
    . ST Global (EventIO' a)
 createO = create'
+
+memoize :: forall a r. Event a -> (Event a -> r) -> Event r
+memoize e f = makeEvent \k -> do
+  { event, push } <- create
+  done <- STRef.new false
+  subscribe e \a -> do
+    o <- liftST $ STRef.read done
+    unless o $ k (f event)
+    void $ liftST $ STRef.write true done
+    push a
 
 mailbox' :: forall a b. Ord a => ST Global { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }
 mailbox' = do
