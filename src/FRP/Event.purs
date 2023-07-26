@@ -3,22 +3,24 @@ module FRP.Event
   , EventIO
   , EventIO'
   , Subscriber(..)
-  , merge
-  , makeEventE
-  , makeEvent
   , create
   , createO
-  , mailbox'
   , mailbox
+  , mailbox'
+  , makeEvent
+  , makeEventE
   , makeLemmingEvent
   , makeLemmingEventO
   , memoize
+  , merge
   , module Class
+  , once
   , subscribe
   , subscribeO
   , subscribePure
   , subscribePureO
-  ) where
+  )
+  where
 
 import Prelude
 
