@@ -2,7 +2,6 @@ module FRP.Event.Mouse
   ( Mouse
   , getMouse
   , disposeMouse
-  , move
   , down
   , up
   , withPosition
@@ -11,14 +10,13 @@ module FRP.Event.Mouse
 
 import Prelude
 
-import Data.Compactable (compact)
 import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (wrap)
 import Data.Set as Set
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (Event, makeEvent, subscribe)
+import FRP.Event (Event, makeEvent, makeEventE, subscribe)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
 import Web.HTML.Window (toEventTarget)
@@ -59,13 +57,9 @@ getMouse = do
 disposeMouse :: Mouse -> Effect Unit
 disposeMouse (Mouse { dispose }) = dispose
 
--- | Create an `Event` which fires when the mouse moves
-move :: Mouse -> Event { x :: Int, y :: Int }
-move m = compact (_.pos <$> withPosition m (pure unit))
-
 -- | Create an `Event` which fires when a mouse button is pressed
-down :: Event Int
-down = makeEvent \k -> do
+down :: Effect { event :: Event Int, unsubscribe :: Effect Unit }
+down = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \me ->
@@ -74,8 +68,8 @@ down = makeEvent \k -> do
   pure (removeEventListener (wrap "mousedown") mouseDownListener false target)
 
 -- | Create an `Event` which fires when a mouse button is released
-up :: Event Int
-up = makeEvent \k -> do
+up :: Effect { event :: Event Int, unsubscribe :: Effect Unit }
+up = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \me ->

@@ -24,8 +24,9 @@ module FRP.Behavior
 
 import Prelude
 
-import Control.Alt (alt)
+import Control.Alt (alt, (<|>))
 import Control.Apply (lift2)
+import Control.Monad.ST.Class (liftST)
 import Data.Filterable (class Filterable, compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
@@ -34,6 +35,7 @@ import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
 import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, sampleOnRight, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
+import FRP.Event.Class (once_)
 
 -- | `ABehavior` is the more general type of `Behavior`, which is parameterized
 -- | over some underlying `event` type.
@@ -88,7 +90,7 @@ behavior = ABehavior
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (sampleOnRight (pure a `alt` e))
+step a e = ABehavior (sampleOnRight (once_ e a `alt` e))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -111,7 +113,7 @@ sample_ = sampleBy const
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall event a. IsEvent event => ABehavior event a -> event (ABehavior event a) -> ABehavior event a
 switcher b0 e = behavior \s ->
-  keepLatest (pure (sample b0 s) `alt` map (\b -> sample b s) e)
+  keepLatest (once_ s (sample b0 s) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> ABehavior event p -> event a -> event a
@@ -218,10 +220,9 @@ fixB a f =
   behavior \s ->
     sampleOnRight
       ( fix \event ->
-          let
-            b = f (step a event)
-          in
-            sample_ b s
+          -- the once is necessary because otherwise the
+          -- right side will never trigger
+          once_ s a <|> sample_ (f (step a event)) s
       )
       s
 
@@ -312,4 +313,9 @@ animate
    . ABehavior Event scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
-animate scene render = subscribe (sample_ scene animationFrame) render
+animate scene render = do
+  { event, unsubscribe } <- animationFrame
+  u <- liftST $ subscribe (sample_ scene event) render
+  pure do
+    liftST u
+    unsubscribe
