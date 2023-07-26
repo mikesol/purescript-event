@@ -21,9 +21,3 @@ export const fastForeachOhE = (o, f) => {
       f(o[a]);
   }
 }
-
-export const objHack = () => ({});
-
-export const insertObjHack = (k,v,o) => { o[k] = v; }
-
-export const deleteObjHack = (k,o) => { delete o[k]; }

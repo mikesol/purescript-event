@@ -27,6 +27,7 @@ import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Ref as STObject
 import Control.Monad.ST.Ref as STRef
 import Control.Monad.ST.Uncurried (STFn1, STFn2, STFn3, mkSTFn2, runSTFn1, runSTFn2, runSTFn3)
 import Data.Array (deleteBy, length)
@@ -45,6 +46,7 @@ import Effect.Aff (delay, launchAff_)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
 import FRP.Event.Class (class IsEvent)
+import Foreign.Object.ST as FOST
 import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
 
@@ -385,27 +387,20 @@ type EventIO' a =
   , push :: EffectFn1 a Unit
   }
 
-data ObjHack (a :: Type)
-
-foreign import objHack :: forall a. ST Global (ObjHack a)
-foreign import insertObjHack :: forall a. STFn3 Int a (ObjHack a) Global Unit
-foreign import deleteObjHack :: forall a. STFn2 Int (ObjHack a) Global Unit
-
 create' :: forall a. ST Global (EventIO' a)
 create' = do
-  subscribers <- objHack
+  subscribers <- FOST.new
   idx <- STRef.new 0
   pure
     { event:
         Event $ mkSTFn2 \_ k -> do
           rk <- STRef.new k
           ix <- STRef.read idx
-          runSTFn3 insertObjHack ix rk subscribers
+          void $ FOST.poke (show ix) rk subscribers
           void $ STRef.modify (_ + 1) idx
           pure do
             void $ STRef.write mempty rk
-            runSTFn2 deleteObjHack ix subscribers
-            pure unit
+            void $ FOST.delete (show ix) subscribers
     , push:
         mkEffectFn1 \a -> do
           runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
@@ -417,18 +412,18 @@ create_
   :: forall a
    . ST Global (EventIO a)
 create_ = do
-  subscribers <- objHack
+  subscribers <- FOST.new
   idx <- STRef.new 0
   pure
     { event:
         Event $ mkSTFn2 \_ k -> do
           rk <- STRef.new k
           ix <- STRef.read idx
-          runSTFn3 insertObjHack ix rk subscribers
+          void $ FOST.poke (show ix) rk subscribers
           void $ STRef.modify (_ + 1) idx
           pure do
             void $ STRef.write mempty rk
-            runSTFn2 deleteObjHack ix subscribers
+            void $ FOST.delete (show ix) subscribers
             pure unit
     , push:
         \a -> do
@@ -533,7 +528,7 @@ memoize (Event e) f = Event $ mkSTFn2 \b k -> do
 foreign import fastForeachThunk :: STFn1 (Array (ST Global Unit)) Global Unit
 foreign import fastForeachE :: forall a. EffectFn2 (Array a) (EffectFn1 a Unit) Unit
 foreign import fastForeachST :: forall a. STFn2 (Array a) (STFn1 a Global Unit) Global Unit
-foreign import fastForeachOhE :: forall a. EffectFn2 (ObjHack a) (EffectFn1 a Unit) Unit
+foreign import fastForeachOhE :: forall a. EffectFn2 (FOST.STObject Global a) (EffectFn1 a Unit) Unit
 
 --
 
