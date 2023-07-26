@@ -10,14 +10,15 @@ import Prelude
 import Data.DateTime.Instant (Instant, instant, unInstant)
 import Data.Maybe (Maybe, fromMaybe, maybe)
 import Data.Time.Duration (Milliseconds)
+import Effect (Effect)
 import Effect.Now (now)
 import Effect.Timer (clearInterval, setInterval)
-import FRP.Event (Event, makeEvent, subscribe)
+import FRP.Event (Event, makeEvent, makeEventE, subscribe)
 import FRP.Event.Class (fix, gateBy)
 
 -- | Create an event which fires every specified number of milliseconds.
-interval :: Int -> Event Instant
-interval n = makeEvent \k -> do
+interval :: Int -> Effect { event :: Event Instant, unsubscribe :: Effect Unit }
+interval n = makeEventE \k -> do
   id <- setInterval n do
     time <- now
     k time

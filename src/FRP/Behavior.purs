@@ -26,26 +26,26 @@ module FRP.Behavior
 import Prelude
 
 import Control.Apply (lift2)
+import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Ref (STRef)
-import Control.Monad.ST.Ref as STRef
+import Control.Monad.ST.Ref (STRef, modify, new, read, write)
+import Control.Monad.ST.Uncurried (runSTFn2)
 import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
-import Effect.Ref (Ref, modify, new, read, write)
-import Effect.Uncurried (mkEffectFn1, runEffectFn1, runEffectFn2)
-import FRP.Event (Event, fold, makeEventO, subscribe, subscribeO)
+import Effect.Uncurried (mkEffectFn1)
+import FRP.Event (Event, fold, makeEvent, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
 
 -- | A `Behavior` acts like a continuous function of time.
 -- |
 -- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
 -- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-newtype Behavior a = Behavior (Effect (Tuple (Effect Unit) (Effect a)))
+newtype Behavior a = Behavior (ST Global (Tuple (ST Global Unit) (Effect a)))
 
 instance functorBehavior :: Functor Behavior where
   map f (Behavior ea) = Behavior (map (map (map f)) ea)
@@ -66,9 +66,10 @@ instance bindBehavior :: Bind Behavior where
     pure $ Tuple (ua *> join (read uu)) do
       a <- aa
       let Behavior eb = f a
-      Tuple ub b <- eb
-      join (read uu)
-      write ub uu
+      Tuple ub b <- liftST eb
+      liftST do
+        join (read uu)
+        void $ write ub uu
       b
 
 instance semigroupBehavior :: Semigroup a => Semigroup (Behavior a) where
@@ -95,7 +96,7 @@ instance ringBehavior :: Ring a => Ring (Behavior a) where
   sub = lift2 sub
 
 -- | Construct a `Behavior` from its sampling function.
-behavior :: forall a. Effect (Tuple (Effect Unit) (Effect a)) -> Behavior a
+behavior :: forall a. ST Global (Tuple (ST Global Unit) (Effect a)) -> Behavior a
 behavior = Behavior
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
@@ -103,8 +104,8 @@ behavior = Behavior
 step :: forall a. a -> Event a -> Behavior a
 step a e = Behavior do
   r <- new a
-  u <- runEffectFn2 subscribeO e (mkEffectFn1 (flip write r))
-  pure (Tuple u (read r))
+  u <- runSTFn2 subscribeO e (mkEffectFn1 (liftST <<< void <<< flip write r))
+  pure (Tuple u (liftST $ read r))
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -114,11 +115,11 @@ unfold f a e = step a (fold f a e)
 
 -- | Sample a `Behavior` on some `Event`.
 sample :: forall a b. Behavior a -> Event (a -> b) -> Event b
-sample (Behavior ea) eAb = makeEventO $ mkEffectFn1 \k -> do
+sample (Behavior ea) eAb = makeEvent \k -> do
   Tuple ua ba <- ea
-  u <- runEffectFn2 subscribeO eAb $ mkEffectFn1 \ab -> do
+  u <- runSTFn2 subscribeO eAb $ mkEffectFn1 \ab -> do
     a <- ba
-    runEffectFn1 k (ab a)
+    k (ab a)
   pure do
     ua
     u
@@ -135,17 +136,17 @@ sample_ = sampleBy const
 switcher :: forall a. Behavior a -> Event (Behavior a) -> Behavior a
 switcher (Behavior b0) e = behavior do
   r <- b0 >>= new
-  u <- runEffectFn2 subscribeO e $ mkEffectFn1 \(Behavior b) -> do
+  u <- runSTFn2 subscribeO e $ mkEffectFn1 \(Behavior b) -> liftST do
     Tuple x _ <- read r
     x
-    b >>= flip write r
+    b >>= void <<< flip write r
   let
     l = do
       Tuple x _ <- read r
       x
       u
   pure $ Tuple l do
-    Tuple _ x <- read r
+    Tuple _ x <- liftST $ read r
     x
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
@@ -160,13 +161,13 @@ gate = gateBy const
 -- | Turn an ST Ref into a behavior
 stRefToBehavior :: STRef Global ~> Behavior
 stRefToBehavior r = do
-  behavior $ pure $ Tuple (pure unit) (liftST (STRef.read r)) 
+  behavior $ pure $ Tuple (pure unit) (liftST (read r)) 
 
 
 -- | Turn a Ref into a behavior
-refToBehavior :: Ref ~> Behavior
+refToBehavior :: STRef Global ~> Behavior
 refToBehavior r = do
-  behavior $ pure $ Tuple (pure unit) (read r) 
+  behavior $ pure $ Tuple (pure unit) (liftST $ read r) 
 
 -- | Integrate with respect to some measure of time.
 -- |
@@ -277,10 +278,10 @@ fixB a f = Behavior do
   let
     -- todo, we need to use this more intelligently going forward
     Behavior o = f $ Behavior $ pure do
-      Tuple (pure unit) (read b)
+      Tuple (pure unit) (liftST $ read b)
   Tuple u x <- o
   pure $ Tuple u do
-    x >>= flip modify b <<< const
+    x >>= liftST <<< flip modify b <<< const
 
 -- | Solve a first order differential equation of the form
 -- |
@@ -369,4 +370,9 @@ animate
    . Behavior scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
-animate scene render = subscribe (sample_ scene animationFrame) render
+animate scene render = do
+  { event, unsubscribe } <- animationFrame
+  u <- liftST $ subscribe (sample_ scene event) render
+  pure do
+    liftST u
+    unsubscribe

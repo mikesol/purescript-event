@@ -4,6 +4,8 @@ module FRP.Event.Class
   , folded
   , count
   , mapAccum
+  , once
+  , once_
   , withLast
   , sampleOnRight
   , (<|**>)
@@ -28,7 +30,7 @@ module FRP.Event.Class
 
 import Prelude
 
-import Control.Alternative (class Alternative, (<|>))
+import Control.Alternative (class Alt, class Plus, (<|>))
 import Data.Compactable (compact)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -43,12 +45,13 @@ import Data.Tuple (Tuple(..), snd)
 -- | - `sampleOn`: samples an event at the times when a second event fires.
 -- | - `fix`: compute a fixed point, by feeding output events back in as
 -- | inputs.
--- | - `bang`: A one-shot event that happens NOW.
-class (Alternative event, Filterable event) <= IsEvent event where
+-- | - `once`: Fires one and only one event (a singleton) the first time it hears another event fire.
+class (Alt event, Plus event, Filterable event) <= IsEvent event where
   keepLatest :: forall a. event (event a) -> event a
   sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
   sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i. (event i -> event i) -> event i
+  once :: forall a. event a -> event a
 
 infixl 4 sampleOnRight as <|**>
 infixl 4 sampleOnLeft as <**|>
@@ -113,6 +116,9 @@ infixl 4 sampleOnLeft_ as *|>
 gate :: forall a event. IsEvent event => event Boolean -> event a -> event a
 gate = gateBy (\x _ -> fromMaybe false x)
 
+once_ :: forall event a b. IsEvent event => event b -> a -> event a
+once_ event b = once event $> b
+
 -- | Generalised form of `gateBy`, allowing for any predicate between the two
 -- | events. The predicate will not be evaluated until a value from the first event is received.
 gateBy
@@ -124,10 +130,9 @@ gateBy
   -> event b
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
-    <$> (pure Nothing <|> Just <$> sampled)
+    <$> (once_ sampler Nothing <|> Just <$> sampled)
     <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b
-fold f b e = fix \i -> sampleOnRight (i <|> pure b) ((flip f) <$> e)
-
+fold f b e = fix \i -> sampleOnRight (i <|> once_ e b) ((flip f) <$> e)

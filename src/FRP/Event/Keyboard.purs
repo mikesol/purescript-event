@@ -9,12 +9,14 @@ module FRP.Event.Keyboard
 
 import Prelude
 
-import Effect.Ref as Ref
+import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Internal as STRef
 import Data.Foldable (traverse_)
 import Data.Newtype (wrap)
 import Data.Set as Set
 import Effect (Effect)
-import FRP.Event (Event, makeEvent, subscribe)
+import FRP.Event (Event, makeEvent, makeEventE, subscribe)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
 import Web.HTML.Window (toEventTarget)
@@ -22,21 +24,21 @@ import Web.UIEvent.KeyboardEvent (code, fromEvent)
 
 -- | A handle for creating events from the keyboard.
 newtype Keyboard = Keyboard
-  { keys :: Ref.Ref (Set.Set String)
+  { keys :: STRef.STRef Global (Set.Set String)
   , dispose :: Effect Unit
   }
 
 -- | Get a handle for working with the keyboard.
 getKeyboard :: Effect Keyboard
 getKeyboard = do
-  keys <- Ref.new Set.empty
+  keys <- liftST $ STRef.new Set.empty
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      Ref.modify (Set.insert (code ke)) keys
+       liftST $ STRef.modify (Set.insert (code ke)) keys
   keyUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      Ref.modify (Set.delete (code ke)) keys
+       liftST $ STRef.modify (Set.delete (code ke)) keys
   addEventListener (wrap "keydown") keyDownListener false target
   addEventListener (wrap "keyup") keyUpListener false target
   let
@@ -49,8 +51,8 @@ disposeKeyboard :: Keyboard -> Effect Unit
 disposeKeyboard (Keyboard { dispose }) = dispose
 
 -- | Create an `Event` which fires when a key is pressed
-down :: Event String
-down = makeEvent \k -> do
+down :: Effect { event :: Event String, unsubscribe :: Effect Unit }
+down = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
@@ -59,8 +61,8 @@ down = makeEvent \k -> do
   pure (removeEventListener (wrap "keydown") keyDownListener false target)
 
 -- | Create an `Event` which fires when a key is released
-up :: Event String
-up = makeEvent \k -> do
+up :: Effect { event :: Event String, unsubscribe :: Effect Unit }
+up = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
@@ -76,5 +78,5 @@ withKeys
   -> Event { value :: a, keys :: Set.Set String }
 withKeys (Keyboard { keys }) e = makeEvent \k ->
   e `subscribe` \value -> do
-    keysValue <- Ref.read keys
+    keysValue <-  liftST $ STRef.read keys
     k { value, keys: keysValue }
