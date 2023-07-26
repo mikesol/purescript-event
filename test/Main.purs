@@ -13,6 +13,7 @@ import Data.Array as Array
 import Data.Filterable (filter)
 import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
+import Data.Profunctor (lcmap)
 import Data.Set as Set
 import Data.Traversable (foldr, for_, sequence)
 import Data.Tuple (Tuple(..))
@@ -23,7 +24,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (derivative', fixB, gate, integral', sample_, stRefToBehavior)
-import FRP.Event (Event, mailbox, merge, sampleOnRight, subscribe)
+import FRP.Event (Event, keepLatest, mailbox, memoize, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once_)
 import FRP.Event.Time (debounce)
@@ -248,6 +249,42 @@ main = do
               Ref.read count >>= shouldEqual 2
               liftST u1
               liftST u2
+            it "should memoize" $ liftEffect do
+              { push, event } <- liftST $ Event.create
+              count <- liftST $ STRef.new 0
+              let
+                fn v =
+                  unsafePerformEffect do
+                    void $ liftST $ STRef.modify (add 1) count
+                    pure $ v
+                mapped = keepLatest $
+                  memoize (identity (map fn event)) \e -> Event.makeEvent \k -> do
+                    u1 <- Event.subscribe e (\_ -> pure unit)
+                    u2 <- Event.subscribe e k
+                    pure (u1 *> u2)
+              u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
+              push 0
+              (liftST $ STRef.read count) >>= shouldEqual 1
+              liftST $ u
+            it "should not memoize when applied internally" $ liftEffect do
+              { push, event } <- liftST $ Event.create
+              count <- liftST $ STRef.new 0
+              let
+                fn v =
+                  unsafePerformEffect do
+                    void $ liftST $ STRef.modify (add 1) count
+                    pure $ v
+                mapped = keepLatest
+                  $ memoize event
+                  $ (lcmap (identity <<< map fn)) \e ->
+                      Event.makeEvent \k -> do
+                        u1 <- liftST $ Event.subscribe e (\_ -> pure unit)
+                        u2 <- liftST $ Event.subscribe e k
+                        pure (u1 *> u2)
+              u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
+              push 0
+              (liftST $ STRef.read count) >>= shouldEqual 2
+              liftST $ u
           describe "Apply" do
             it "respects both sides of application" $ liftEffect do
               { event, push } <- liftST $ Event.create
