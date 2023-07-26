@@ -27,9 +27,8 @@ import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Ref as STObject
 import Control.Monad.ST.Ref as STRef
-import Control.Monad.ST.Uncurried (STFn1, STFn2, STFn3, mkSTFn2, runSTFn1, runSTFn2, runSTFn3)
+import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn2, runSTFn1, runSTFn2)
 import Data.Array (deleteBy, length)
 import Data.Array as Array
 import Data.Array.ST as STArray
