@@ -233,6 +233,16 @@ main = do
               liftST u
               ends <- getTime <$> now
               write ("Duration: " <> show (ends - starts) <> "\n")
+          describe "Keep latest" do
+            it "should emit when an event keeps itself" $ liftEffect do
+              r <- liftST $ STRef.new []
+              { push, event } <- liftST $ Event.create
+              u1 <- liftST $ subscribe (keepLatest (event $> event)) \i ->
+                liftST $ void $ STRef.modify (Array.cons i) r
+              push 0
+              v <- liftST $ STRef.read r
+              v `shouldEqual` [ 0 ]
+              liftST u1
           describe "Memoization" do
             it "should not memoize" $ liftEffect do
               { push, event } <- liftST Event.create

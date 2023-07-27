@@ -8,7 +8,6 @@
   , "either"
   , "filterable"
   , "foldable-traversable"
-  , "foreign-object"
   , "js-timers"
   , "maybe"
   , "newtype"

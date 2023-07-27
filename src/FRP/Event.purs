@@ -48,7 +48,6 @@ import Effect.Timer (TimeoutId, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
 import FRP.Event.Class (class IsEvent)
-import Foreign.Object.ST as FOST
 import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
 
@@ -368,18 +367,18 @@ type EventIO' a =
 
 create' :: forall a. ST Global (EventIO' a)
 create' = do
-  subscribers <- FOST.new
+  subscribers <- newForeignMap
   idx <- STRef.new 0
   pure
     { event:
         Event $ mkSTFn1 \k -> do
           rk <- STRef.new k
           ix <- STRef.read idx
-          void $ FOST.poke (show ix) rk subscribers
+          void $ addToMapForeign (show ix) rk subscribers
           void $ STRef.modify (_ + 1) idx
           pure do
             void $ STRef.write mempty rk
-            void $ FOST.delete (show ix) subscribers
+            void $ deleteFromMapForeign (show ix) subscribers
     , push:
         mkEffectFn1 \a -> do
           runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
@@ -391,18 +390,18 @@ create_
   :: forall a
    . ST Global (EventIO a)
 create_ = do
-  subscribers <- FOST.new
+  subscribers <- newForeignMap
   idx <- STRef.new 0
   pure
     { event:
         Event $ mkSTFn1 \k -> do
           rk <- STRef.new k
           ix <- STRef.read idx
-          void $ FOST.poke (show ix) rk subscribers
+          void $ addToMapForeign (show ix) rk subscribers
           void $ STRef.modify (_ + 1) idx
           pure do
             void $ STRef.write mempty rk
-            void $ FOST.delete (show ix) subscribers
+            void $ deleteFromMapForeign (show ix) subscribers
             pure unit
     , push:
         \a -> do
@@ -465,8 +464,13 @@ mailbox = do
 foreign import fastForeachThunk :: STFn1 (Array (ST Global Unit)) Global Unit
 foreign import fastForeachE :: forall a. EffectFn2 (Array a) (EffectFn1 a Unit) Unit
 foreign import fastForeachST :: forall a. STFn2 (Array a) (STFn1 a Global Unit) Global Unit
-foreign import fastForeachOhE :: forall a. EffectFn2 (FOST.STObject Global a) (EffectFn1 a Unit) Unit
+foreign import fastForeachOhE :: forall a. EffectFn2 (ForeignMap Global a) (EffectFn1 a Unit) Unit
 
+data ForeignMap :: forall k1. k1 -> Type -> Type
+data ForeignMap region a
+foreign import addToMapForeign :: forall r a. String -> a ->  ForeignMap r a -> ST r Unit
+foreign import deleteFromMapForeign :: forall r a. String -> ForeignMap r a -> ST r Boolean
+foreign import newForeignMap :: forall r a. ST r (ForeignMap r a)
 --
 
 delay :: forall a. Int -> Event a -> Event (Either TimeoutId (Tuple (Maybe TimeoutId) a))
