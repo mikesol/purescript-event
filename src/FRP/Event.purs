@@ -1,5 +1,5 @@
 module FRP.Event
-  ( Event
+  ( Event(..)
   , EventIO
   , EventIO'
   , Subscriber(..)
