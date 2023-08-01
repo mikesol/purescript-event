@@ -2,6 +2,8 @@ module FRP.Behavior
   ( Behavior
   , behavior
   , step
+  , sampleBind
+  , (>@=)
   , sample
   , sampleBy
   , sample_
@@ -123,6 +125,23 @@ sample (Behavior ea) eAb = makeEvent \k -> do
   pure do
     ua
     u
+
+-- | Sample a `Behavior` on some `Event`.
+sampleBind :: forall a b. Event a -> (a -> Behavior b) -> Event b
+sampleBind e f = makeEvent \k -> do
+  uu <- new (pure unit)
+  u <- runSTFn2 subscribeO e $ mkEffectFn1 \a -> do
+    liftST $ join (read uu)
+    let Behavior bv = f a
+    Tuple ua ba <- liftST bv
+    void $ liftST $ write ua uu
+    aa <- ba
+    k aa
+  pure do
+    join (read uu)
+    u
+
+infixl 1 sampleBind as >@=
 
 -- | Sample a `Behavior` on some `Event` by providing a combining function.
 sampleBy :: forall a b c. (a -> b -> c) -> Behavior a -> Event b -> Event c
