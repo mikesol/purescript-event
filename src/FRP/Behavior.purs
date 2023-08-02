@@ -135,6 +135,7 @@ sample (Behavior ea) eAb = makeEvent \k -> do
     ua
     u
 
+-- | Uses the right non empty event to drive sampling on the left event, which is converted into a behavior.
 sampleStepping :: forall a b. NonEmpty Event a -> NonEmpty Event (a -> b) -> NonEmpty Event b
 sampleStepping a b = head b (head a) :| sample (stepNE a) (tail b)
 
