@@ -2,6 +2,7 @@ module FRP.Behavior
   ( Behavior
   , behavior
   , step
+  , stepNE
   , sampleBind
   , (>@=)
   , sampleBindFlipped
@@ -39,6 +40,7 @@ import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
+import Data.NonEmpty (NonEmpty, (:|))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Uncurried (mkEffectFn1)
@@ -110,6 +112,9 @@ step a e = Behavior do
   r <- new a
   u <- runSTFn2 subscribeO e (mkEffectFn1 (liftST <<< void <<< flip write r))
   pure (Tuple u (liftST $ read r))
+
+stepNE :: forall a. NonEmpty Event a -> Behavior a
+stepNE (h :| t) = step h t
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
