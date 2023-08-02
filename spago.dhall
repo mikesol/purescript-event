@@ -11,6 +11,7 @@
   , "js-timers"
   , "maybe"
   , "newtype"
+  , "nonempty"
   , "now"
   , "ordered-collections"
   , "prelude"
