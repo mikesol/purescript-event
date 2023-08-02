@@ -1,32 +1,34 @@
 module FRP.Behavior
-  ( Behavior
-  , behavior
-  , step
-  , stepNE
-  , sampleBind
+  ( (=@<)
   , (>@=)
-  , sampleBindFlipped
-  , (=@<)
-  , sample
-  , sampleBy
-  , sample_
-  , gate
-  , gateBy
-  , stRefToBehavior
-  , refToBehavior
-  , unfold
-  , switcher
-  , integral
-  , integral'
+  , Behavior
+  , animate
+  , behavior
   , derivative
   , derivative'
+  , fixB
+  , gate
+  , gateBy
+  , integral
+  , integral'
+  , refToBehavior
+  , sample
+  , sampleBind
+  , sampleBindFlipped
+  , sampleBy
+  , sampleStepping
+  , sample_
   , solve
   , solve'
   , solve2
   , solve2'
-  , fixB
-  , animate
-  ) where
+  , stRefToBehavior
+  , step
+  , stepNE
+  , switcher
+  , unfold
+  )
+  where
 
 import Prelude
 
@@ -40,7 +42,7 @@ import Data.Filterable (compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
-import Data.NonEmpty (NonEmpty, (:|))
+import Data.NonEmpty (NonEmpty, head, tail, (:|))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Uncurried (mkEffectFn1)
@@ -132,6 +134,10 @@ sample (Behavior ea) eAb = makeEvent \k -> do
   pure do
     ua
     u
+
+sampleStepping :: forall a b. NonEmpty Event a -> NonEmpty Event (a -> b) -> NonEmpty Event b
+sampleStepping a b = head b (head a) :| sample (stepNE a) (tail b)
+
 
 -- | Sample a `Behavior` on some `Event`.
 sampleBind :: forall a b. Event a -> (a -> Behavior b) -> Event b
