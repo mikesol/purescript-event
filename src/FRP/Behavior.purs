@@ -4,6 +4,8 @@ module FRP.Behavior
   , step
   , sampleBind
   , (>@=)
+  , sampleBindFlipped
+  , (=@<)
   , sample
   , sampleBy
   , sample_
@@ -141,7 +143,11 @@ sampleBind e f = makeEvent \k -> do
     join (read uu)
     u
 
+sampleBindFlipped :: forall a b. (a -> Behavior b) -> Event a -> Event b
+sampleBindFlipped = flip sampleBind
+
 infixl 1 sampleBind as >@=
+infixl 1 sampleBindFlipped as =@<
 
 -- | Sample a `Behavior` on some `Event` by providing a combining function.
 sampleBy :: forall a b c. (a -> b -> c) -> Behavior a -> Event b -> Event c
@@ -176,17 +182,15 @@ gateBy f ps xs = compact (sampleBy (\p x -> if f p x then Just x else Nothing) p
 gate :: forall a. Behavior Boolean -> Event a -> Event a
 gate = gateBy const
 
-
 -- | Turn an ST Ref into a behavior
 stRefToBehavior :: STRef Global ~> Behavior
 stRefToBehavior r = do
-  behavior $ pure $ Tuple (pure unit) (liftST (read r)) 
-
+  behavior $ pure $ Tuple (pure unit) (liftST (read r))
 
 -- | Turn a Ref into a behavior
 refToBehavior :: STRef Global ~> Behavior
 refToBehavior r = do
-  behavior $ pure $ Tuple (pure unit) (liftST $ read r) 
+  behavior $ pure $ Tuple (pure unit) (liftST $ read r)
 
 -- | Integrate with respect to some measure of time.
 -- |
