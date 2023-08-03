@@ -14,7 +14,6 @@ import Data.Filterable (filter)
 import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
-import Data.Set as Set
 import Data.Traversable (foldr, for_, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
@@ -177,10 +176,8 @@ main = do
               push 0
               liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
               liftST u
-          it "should match Applicative Array instance in content at single timestamp" $ liftEffect do
+          it "should ignore left pushes on initial event but respond to both right pushes" $ liftEffect do
             let
-              x :: Array (Tuple Int Int)
-              x = Tuple <$> (pure 1 <|> pure 2) <*> (pure 3 <|> pure 4)
 
               e :: forall a. Event a -> Event (Tuple Int Int)
               e e' = Tuple <$> (e' $> 1 <|> e' $> 2) <*> (e' $> 3 <|> e' $> 4)
@@ -189,7 +186,7 @@ main = do
             u <- liftST $ subscribe (e ep.event) \i ->
               liftST $ void $ STRef.modify (flip Array.snoc i) r
             ep.push unit
-            liftST (STRef.read r) >>= \y -> (Set.fromFoldable y) `shouldEqual` (Set.fromFoldable x)
+            liftST (STRef.read r) >>= \y -> y `shouldEqual` [Tuple 2 3, Tuple 2 4]
             liftST u
           describe "Performance" do
             it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
@@ -315,7 +312,7 @@ main = do
               push 1
               push 2
               o <- liftST $ STRef.read r
-              o `shouldEqual` [ 2, 3, 3, 4 ]
+              o `shouldEqual` [ 2, 3, 4 ]
               liftST $ u
             it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
               r <- liftST $ STRef.new []
@@ -326,7 +323,7 @@ main = do
               push 1
               push 2
               o <- liftST $ STRef.read r
-              o `shouldEqual` [ 6, 7, 7, 8, 7, 8, 8, 9, 7, 8, 8, 9, 8, 9, 9, 10, 7, 8, 8, 9, 8, 9, 9, 10, 8, 9, 9, 10, 9, 10, 10, 11, 7, 8, 8, 9, 8, 9, 9, 10, 8, 9, 9, 10, 9, 10, 10, 11, 8, 9, 9, 10, 9, 10, 10, 11, 9, 10, 10, 11, 10, 11, 11, 12 ]
+              o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
               liftST $ u
           describe "Mailboxed" do
             it "should work" $ liftEffect do

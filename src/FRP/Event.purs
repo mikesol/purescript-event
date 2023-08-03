@@ -29,8 +29,7 @@ import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Ref as STRef
 import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn1, mkSTFn2, runSTFn1)
-import Data.Array (deleteBy, length)
-import Data.Array as Array
+import Data.Array (deleteBy)
 import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
@@ -39,11 +38,8 @@ import Data.Foldable (class Foldable, for_)
 import Data.Foldable as M
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.Time.Duration (Milliseconds(..))
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
-import Effect.Aff (launchAff_)
-import Effect.Aff as Aff
 import Effect.Timer (TimeoutId, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
@@ -211,56 +207,18 @@ sampleOnRight (Event e1) (Event e2) =
 biSampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
 biSampleOn (Event e1) (Event e2) =
   Event $ mkSTFn1 \k -> do
-    latest1 <- STRef.new []
-    purge1 <- STRef.new true
-    replay1 <- liftST STArray.new
-    latest2 <- STRef.new []
-    purge2 <- STRef.new true
-    replay2 <- liftST STArray.new
-    -- First we capture the immediately emitted events
-    capturing <- STRef.new true
+    latest1 <- STRef.new Nothing
+    latest2 <- STRef.new Nothing
     c1 <-
       runSTFn1 e1 $ mkEffectFn1 \a -> do
-        o <- liftST $ STRef.read capturing
-        if o then void $ liftST $ STArray.push a replay1
-        else do
-          purge <- liftST $ STRef.read purge1
-          void $ liftST $ STRef.write false purge1
-          when purge $ launchAff_ do
-            Aff.delay (Milliseconds 0.0)
-            void $ liftST $ STRef.write true purge1
-          void $ liftST $ STRef.modify (if purge then const [ a ] else flip Array.snoc a) latest1
+          void $ liftST $ STRef.write (Just a) latest1
           res <- liftST $ STRef.read latest2
           for_ res (\f -> runEffectFn1 k (f a))
     c2 <-
       runSTFn1 e2 $ mkEffectFn1 \f -> do
-        o <- liftST $ STRef.read capturing
-        if o then void $ liftST $ STArray.push f replay2
-        else do
-          purge <- liftST $ STRef.read purge2
-          void $ liftST $ STRef.write false purge2
-          when purge $ launchAff_ do
-            Aff.delay (Milliseconds 0.0)
-            void $ liftST $ STRef.write true purge2
-          void $ liftST $ STRef.modify (if purge then const [ f ] else flip Array.snoc f) latest2
+          void $ liftST $ STRef.write (Just f) latest2
           res <- liftST $ STRef.read latest1
           for_ res (\a -> runEffectFn1 k (f a))
-    -- And then we replay them according to the `Applicative Array` instance
-    _ <- void $ STRef.write false capturing
-    samples1 <- liftST $ STArray.freeze replay1
-    samples2 <- liftST $ STArray.freeze replay2
-    -- case samples1 of
-    --   -- if there are no samples in samples1, we still want to write samples2
-    --   [] -> void $ STRef.write (Array.last samples2) latest2
-    --   _ -> runSTFn1 fastForeachST samples1 $ mkSTFn1 \a -> do
-    --     -- We write the current values as we go through -- this would only matter for recursive events
-    --     void $ STRef.write (Just a) latest1
-    --     runSTFn1 fastForeachST samples2 $ mkSTFn1 \f -> do
-    --       void $ STRef.write (Just f) latest2
-    --       runSTFn1 (unsafeCoerce k) (f a)
-    -- Free the samples so they can be GCed
-    _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
-    _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
     pure do
       c1
       c2
