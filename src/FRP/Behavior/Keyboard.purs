@@ -6,12 +6,12 @@ module FRP.Behavior.Keyboard
 import Prelude
 
 import Data.Set as Set
-import FRP.Behavior (Behavior, refToBehavior)
+import FRP.Behavior (Behavior, stRefToBehavior)
 import FRP.Event.Keyboard (Keyboard(..))
 
 -- | A `Behavior` which reports the keys which are currently pressed.
 keys :: Keyboard -> Behavior (Set.Set String)
-keys (Keyboard k) = refToBehavior k.keys
+keys (Keyboard k) = stRefToBehavior k.keys
 
 -- | A `Behavior` which reports whether a specific key is currently pressed.
 key :: Keyboard -> String -> Behavior Boolean
