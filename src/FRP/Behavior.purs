@@ -80,6 +80,8 @@ instance bindBehavior :: Bind Behavior where
         void $ write ub uu
       b
 
+instance Monad Behavior
+
 instance semigroupBehavior :: Semigroup a => Semigroup (Behavior a) where
   append = lift2 append
 
