@@ -27,12 +27,12 @@ module FRP.Behavior
   , stepNE
   , switcher
   , unfold
-  )
-  where
+  ) where
 
 import Prelude
 
 import Control.Apply (lift2)
+import Control.Monad.Rec.Class (class MonadRec, Step(..))
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
@@ -44,7 +44,8 @@ import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.NonEmpty (NonEmpty, head, tail, (:|))
 import Data.Tuple (Tuple(..), fst)
-import Effect (Effect)
+import Effect (Effect, untilE)
+import Effect.Exception (error, throwException)
 import Effect.Uncurried (mkEffectFn1)
 import FRP.Event (Event, fold, makeEvent, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
@@ -81,6 +82,30 @@ instance bindBehavior :: Bind Behavior where
       b
 
 instance Monad Behavior
+
+instance MonadRec Behavior where
+  tailRecM f a' = Behavior do
+    uu <- new (pure unit)
+    pure $ Tuple (join (read uu)) $ do
+      v <- liftST (new Nothing)
+      av <- liftST (new a')
+      untilE do
+        a <- liftST (read av)
+        liftST $ join (read uu)
+        let Behavior eb = f a
+        Tuple ub b <- liftST eb
+        void $ liftST $ write ub uu
+        o <- b
+        case o of
+          Loop x -> do
+            liftST $ void $ write x av
+            pure false
+          Done y -> do
+            void $ liftST $ write (Just y) v
+            pure true
+      liftST (read v) >>= case _ of
+        Just x -> pure x
+        Nothing -> throwException (error "Programming error, report this.")
 
 instance semigroupBehavior :: Semigroup a => Semigroup (Behavior a) where
   append = lift2 append
@@ -140,7 +165,6 @@ sample (Behavior ea) eAb = makeEvent \k -> do
 -- | Uses the right non empty event to drive sampling on the left event, which is converted into a behavior.
 sampleStepping :: forall a b. NonEmpty Event a -> NonEmpty Event (a -> b) -> NonEmpty Event b
 sampleStepping a b = head b (head a) :| sample (stepNE a) (tail b)
-
 
 -- | Sample a `Behavior` on some `Event`.
 sampleBind :: forall a b. Event a -> (a -> Behavior b) -> Event b
