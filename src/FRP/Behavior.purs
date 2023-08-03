@@ -46,6 +46,8 @@ import Data.NonEmpty (NonEmpty, head, tail, (:|))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect, untilE)
 import Effect.Exception (error, throwException)
+import Effect.Ref (Ref)
+import Effect.Ref as Ref
 import Effect.Uncurried (mkEffectFn1)
 import FRP.Event (Event, fold, makeEvent, subscribe, subscribeO)
 import FRP.Event.AnimationFrame (animationFrame)
@@ -226,9 +228,9 @@ stRefToBehavior r = do
   behavior $ pure $ Tuple (pure unit) (liftST (read r))
 
 -- | Turn a Ref into a behavior
-refToBehavior :: STRef Global ~> Behavior
+refToBehavior :: Ref ~> Behavior
 refToBehavior r = do
-  behavior $ pure $ Tuple (pure unit) (liftST $ read r)
+  behavior $ pure $ Tuple (pure unit) (Ref.read r)
 
 -- | Integrate with respect to some measure of time.
 -- |
