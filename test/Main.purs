@@ -23,9 +23,9 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (derivative', fixB, gate, integral', sample_, stRefToBehavior)
-import FRP.Event (Event, keepLatest, mailbox, memoize, merge, sampleOnRight, subscribe)
+import FRP.Event (Event, keepLatest, mailbox, memoize, merge, once, sampleOnRight, subscribe)
 import FRP.Event as Event
-import FRP.Event.Class (fold, once_)
+import FRP.Event.Class (fold)
 import FRP.Event.Time (debounce)
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -297,8 +297,8 @@ main = do
               { event, push } <- liftST $ Event.create
               rf0 <- liftST $ STRef.new ""
               rf1 <- liftST $ STRef.new ""
-              void $ liftST $ Event.subscribe ((append <$> once_ event "a") <*> event) (liftST <<< void <<< flip STRef.write rf0)
-              void $ liftST $ Event.subscribe ((append <$> event) <*> once_ event "b") (liftST <<< void <<< flip STRef.write rf1)
+              void $ liftST $ Event.subscribe ((append <$> (once event $> "a")) <*> event) (liftST <<< void <<< flip STRef.write rf0)
+              void $ liftST $ Event.subscribe ((append <$> event) <*> (once event $> "b")) (liftST <<< void <<< flip STRef.write rf1)
               push "c"
               rf0' <- liftST $ STRef.read rf0
               rf1' <- liftST $ STRef.read rf1

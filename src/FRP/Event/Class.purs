@@ -5,7 +5,6 @@ module FRP.Event.Class
   , count
   , mapAccum
   , once
-  , once_
   , withLast
   , sampleOnRight
   , (<|**>)
@@ -116,9 +115,6 @@ infixl 4 sampleOnLeft_ as *|>
 gate :: forall a event. IsEvent event => event Boolean -> event a -> event a
 gate = gateBy (\x _ -> fromMaybe false x)
 
-once_ :: forall event a b. IsEvent event => event b -> a -> event a
-once_ event b = once event $> b
-
 -- | Generalised form of `gateBy`, allowing for any predicate between the two
 -- | events. The predicate will not be evaluated until a value from the first event is received.
 gateBy
@@ -130,9 +126,9 @@ gateBy
   -> event b
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
-    <$> (once_ sampler Nothing <|> Just <$> sampled)
+    <$> (((once sampler) $> Nothing) <|> Just <$> sampled)
     <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b
-fold f b e = fix \i -> sampleOnRight (i <|> once_ e b) ((flip f) <$> e)
+fold f b e = fix \i -> sampleOnRight (i <|> (once e $> b)) ((flip f) <$> e)
