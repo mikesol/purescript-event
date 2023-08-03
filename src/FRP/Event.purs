@@ -18,6 +18,7 @@ module FRP.Event
   , subscribeO
   , subscribePure
   , subscribePureO
+  , bindToEffect
   ) where
 
 import Prelude
@@ -440,3 +441,10 @@ delay n (Event e) = Event $ mkSTFn1 \k -> do
       runEffectFn1 k (Right (Tuple t a))
     void $ liftST $ STRef.write (Just o) tid
     runEffectFn1 k (Left o)
+
+bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
+bindToEffect (Event e) f =  Event $ mkSTFn1 \k -> do
+  u <- runSTFn1 e $ mkEffectFn1 \v -> do
+    o <- f v
+    runEffectFn1 k o
+  pure u
