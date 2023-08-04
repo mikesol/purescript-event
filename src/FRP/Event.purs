@@ -5,7 +5,6 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
-  , burning
   , merge
   , create
   , createO
@@ -27,31 +26,26 @@ module FRP.Event
 
 import Prelude
 
-import Control.Alt ((<|>))
-import Control.Alternative (class Alt, class Alternative, class Plus)
+import Control.Alternative (class Alt, class Plus)
 import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Internal as STRef
-import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn1, mkSTFn2, runSTFn1, runSTFn2)
-import Data.Array (deleteBy, length)
-import Data.Array as Array
+import Control.Monad.ST.Uncurried (STFn1, STFn2, STFn3, mkSTFn2, runSTFn1, runSTFn2, runSTFn3)
+import Data.Array (deleteBy)
 import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable as Filterable
 import Data.Foldable (class Foldable, for_)
 import Data.Foldable as M
-import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Map as Map
-import Data.Maybe (Maybe(..), maybe)
-import Data.Set (Set, singleton, delete)
+import Data.Maybe (Maybe(..))
+import Data.Tuple (Tuple(..))
 import Effect (Effect)
-import Effect.Ref as ERef
-import Effect.Ref as Ref
-import Effect.Timer (TimeoutId, clearTimeout, setTimeout)
-import Effect.Uncurried (EffectFn1, EffectFn2, EffectFn3, mkEffectFn1, mkEffectFn2, runEffectFn1, runEffectFn2, runEffectFn3)
+import Effect.Timer (TimeoutId, setTimeout)
+import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
 import Unsafe.Coerce (unsafeCoerce)
 import Unsafe.Reference (unsafeRefEq)
@@ -112,9 +106,9 @@ instance filterableEvent :: Filterable.Filterable Event where
 
 instance altEvent :: Alt Event where
   alt (Event f) (Event g) =
-    Event $ mkEffectFn2 \tf k -> ado
-      c1 <- runEffectFn2 f tf k
-      c2 <- runEffectFn2 g tf k
+    Event $ mkSTFn2 \tf k -> ado
+      c1 <- runSTFn2 f tf k
+      c2 <- runSTFn2 g tf k
       in
         do
           c1
@@ -217,45 +211,19 @@ sampleOnRight (Event e1) (Event e2) =
 
 biSampleOn :: forall a b. Event a -> Event (a -> b) -> Event b
 biSampleOn (Event e1) (Event e2) =
-  Event $ mkEffectFn2 \tf k -> do
-    latest1 <- Ref.new Nothing
-    replay1 <- liftST STArray.new
-    latest2 <- Ref.new Nothing
-    replay2 <- liftST STArray.new
-    -- First we capture the immediately emitted events
-    capturing <- Ref.new true
+  Event $ mkSTFn2 \tf k -> do
+    latest1 <- STRef.new Nothing
+    latest2 <- STRef.new Nothing
     c1 <-
-      runEffectFn2 e1 tf $ mkEffectFn1 \a -> do
-        o <- Ref.read capturing
-        if o then void $ liftST $ STArray.push a replay1
-        else do
-          Ref.write (Just a) latest1
-          res <- Ref.read latest2
+      runSTFn2 e1 tf $ mkEffectFn1 \a -> do
+          void $ liftST $ STRef.write (Just a) latest1
+          res <- liftST $ STRef.read latest2
           for_ res (\f -> runEffectFn1 k (f a))
     c2 <-
-      runEffectFn2 e2 tf $ mkEffectFn1 \f -> do
-        o <- Ref.read capturing
-        if o then void $ liftST $ STArray.push f replay2
-        else do
-          Ref.write (Just f) latest2
-          res <- Ref.read latest1
+      runSTFn2 e2 tf $ mkEffectFn1 \f -> do
+          void $ liftST $ STRef.write (Just f) latest2
+          res <- liftST $ STRef.read latest1
           for_ res (\a -> runEffectFn1 k (f a))
-    -- And then we replay them according to the `Applicative Array` instance
-    _ <- Ref.write false capturing
-    samples1 <- liftST $ STArray.freeze replay1
-    samples2 <- liftST $ STArray.freeze replay2
-    case samples1 of
-      -- if there are no samples in samples1, we still want to write samples2
-      [] -> Ref.write (Array.last samples2) latest2
-      _ -> runEffectFn2 fastForeachE samples1 $ mkEffectFn1 \a -> do
-        -- We write the current values as we go through -- this would only matter for recursive events
-        Ref.write (Just a) latest1
-        runEffectFn2 fastForeachE samples2 $ mkEffectFn1 \f -> do
-          Ref.write (Just f) latest2
-          runEffectFn1 k (f a)
-    -- Free the samples so they can be GCed
-    _ <- liftST $ STArray.splice 0 (length samples1) [] replay1
-    _ <- liftST $ STArray.splice 0 (length samples2) [] replay2
     pure do
       c1
       c2
@@ -283,12 +251,12 @@ keepLatest (Event e) =
 -- | Compute a fixed point
 fix :: forall i. (Event i -> Event i) -> Event i
 fix f =
-  Event $ mkEffectFn2 \tf k -> do
+  Event $ mkSTFn2 \tf k -> do
     { event, push } <- create'
     let Event e0 = f event
     let Event e1 = event
-    c2 <- runEffectFn2 e1 tf k
-    c1 <- runEffectFn2 e0 tf push
+    c2 <- runSTFn2 e1 tf k
+    c1 <- runSTFn2 e0 tf push
     pure do
       c1
       c2
@@ -417,7 +385,7 @@ type EventIO a =
   }
 
 -- | Create an event and a function which supplies a value to that event.
-create :: forall a. Effect (EventIO a)
+create :: forall a. ST Global (EventIO a)
 create = create_
 
 type EventIO' a =
@@ -427,53 +395,53 @@ type EventIO' a =
 
 data ObjHack (a :: Type)
 
-foreign import objHack :: forall a. Effect (ObjHack a)
-foreign import insertObjHack :: forall a. EffectFn3 Int a (ObjHack a) Unit
-foreign import deleteObjHack :: forall a. EffectFn2 Int (ObjHack a) Unit
+foreign import objHack :: forall a. ST Global (ObjHack a)
+foreign import insertObjHack :: forall a. STFn3 Int a (ObjHack a) Global Unit
+foreign import deleteObjHack :: forall a. STFn2 Int (ObjHack a) Global Unit
 
-create' :: forall a. Effect (EventIO' a)
+create' :: forall a. ST Global (EventIO' a)
 create' = do
   subscribers <- objHack
-  idx <- Ref.new 0
+  idx <- STRef.new 0
   pure
     { event:
-        Event $ mkEffectFn2 \_ k -> do
-          rk <- Ref.new k
-          ix <- Ref.read idx
-          runEffectFn3 insertObjHack ix rk subscribers
-          Ref.modify_ (_ + 1) idx
+        Event $ mkSTFn2 \_ k -> do
+          rk <- STRef.new k
+          ix <- STRef.read idx
+          runSTFn3 insertObjHack ix rk subscribers
+          void $ STRef.modify (_ + 1) idx
           pure do
-            Ref.write mempty rk
-            runEffectFn2 deleteObjHack ix subscribers
+            void $ STRef.write mempty rk
+            runSTFn2 deleteObjHack ix subscribers
             pure unit
     , push:
         mkEffectFn1 \a -> do
           runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
-            k <- Ref.read rk
+            k <- liftST $ STRef.read rk
             runEffectFn1 k a
     }
 
 create_
   :: forall a
-   . Effect (EventIO a)
+   . ST Global (EventIO a)
 create_ = do
   subscribers <- objHack
-  idx <- Ref.new 0
+  idx <- STRef.new 0
   pure
     { event:
-        Event $ mkEffectFn2 \_ k -> do
-          rk <- Ref.new k
-          ix <- Ref.read idx
-          runEffectFn3 insertObjHack ix rk subscribers
-          Ref.modify_ (_ + 1) idx
+        Event $ mkSTFn2 \_ k -> do
+          rk <- STRef.new k
+          ix <- STRef.read idx
+          runSTFn3 insertObjHack ix rk subscribers
+          void $ STRef.modify (_ + 1) idx
           pure do
-            Ref.write mempty rk
-            runEffectFn2 deleteObjHack ix subscribers
+            void $ STRef.write mempty rk
+            runSTFn2 deleteObjHack ix subscribers
             pure unit
     , push:
         \a -> do
           runEffectFn2 fastForeachOhE subscribers $ mkEffectFn1 \rk -> do
-            k <- Ref.read rk
+            k <- liftST $ STRef.read rk
             runEffectFn1 k a
     }
 
@@ -481,7 +449,7 @@ create_ = do
 createPure
   :: forall a r
    . ST r (PureEventIO r a)
-createPure = (unsafeCoerce :: Effect (EventIO a) -> ST r (PureEventIO r a)) create_
+createPure = (unsafeCoerce :: ST Global (EventIO a) -> ST r (PureEventIO r a)) create_
 
 type PureEventIO r a =
   { event :: Event a
@@ -494,13 +462,13 @@ type PureEventIO' r a =
   }
 
 createPureO
-  :: forall a r
-   . ST r (PureEventIO' r a)
-createPureO = (unsafeCoerce :: Effect (EventIO' a) -> ST r (PureEventIO' r a)) create'
+  :: forall a
+   . ST Global (PureEventIO' Global a)
+createPureO = (unsafeCoerce :: ST Global (EventIO' a) -> ST Global (PureEventIO' Global a)) create'
 
 createO
   :: forall a
-   . Effect (EventIO' a)
+   . ST Global (EventIO' a)
 createO = create'
 
 mailbox' :: forall a b. Ord a => ST Global { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }
@@ -538,33 +506,11 @@ mailbox' = do
 hot
   :: forall a
    . Event a
-  -> Effect { event :: Event a, unsubscribe :: Effect Unit }
+  -> ST Global { event :: Event a, unsubscribe :: ST Global Unit }
 hot e = do
   { event, push } <- create
   unsubscribe <- subscribe e push
   pure { event, unsubscribe }
-
--- | Makes an event _burning_ hot. Like hot, it will start firing immediately on left bind. In addition, it _always_ fires _immediately_ upon subscription with the most recent value.
-burning
-  :: forall a
-   . a
-  -> Event a
-  -> Effect { event :: Event a, unsubscribe :: Effect Unit }
-burning i (Event e) = do
-  r <- Ref.new i
-  { event, push } <- create'
-  unsubscribe <- runEffectFn2 e true $ mkEffectFn1 \x -> do
-    Ref.write x r
-    runEffectFn1 push x
-  pure
-    { event: event <|>
-        ( Event $ mkEffectFn2 \_ k -> do
-            o <- Ref.read r
-            runEffectFn1 k o
-            pure (pure unit)
-        )
-    , unsubscribe
-    }
 
 --
 foreign import fastForeachThunk :: STFn1 (Array (ST Global Unit)) Global Unit
@@ -573,20 +519,12 @@ foreign import fastForeachOhE :: forall a. EffectFn2 (ObjHack a) (EffectFn1 a Un
 
 --
 
-delay :: forall a. Int -> Event a -> Event a
-delay n (Event e) = Event $ mkEffectFn2 \tf k -> do
-  tid <- ERef.new (mempty :: Set TimeoutId)
-  canceler <-
-    runSTFn2 e tf $ mkEffectFn1 \a -> do
-      localId <- ERef.new Nothing
-      id <-
-        setTimeout n do
-          runEffectFn1 k a
-          lid <- ERef.read localId
-          maybe (pure unit) (\id -> ERef.modify_ (delete id) tid) lid
-      ERef.write (Just id) localId
-      ERef.modify_ (append (singleton id)) tid
-  pure do
-    ids <- ERef.read tid
-    for_ ids clearTimeout
-    canceler
+delay :: forall a. Int -> Event a -> Event (Either TimeoutId (Tuple (Maybe TimeoutId) a))
+delay n (Event e) = Event $ mkSTFn2 \tf k -> do
+  runSTFn2 e tf $ mkEffectFn1 \a -> do
+    tid <- liftST $ STRef.new Nothing
+    o <- setTimeout n do
+      t <- liftST $ STRef.read tid
+      runEffectFn1 k (Right (Tuple t a))
+    void $ liftST $ STRef.write (Just o) tid
+    runEffectFn1 k (Left o)
