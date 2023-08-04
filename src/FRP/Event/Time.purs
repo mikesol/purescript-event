@@ -1,6 +1,5 @@
 module FRP.Event.Time
-  ( interval
-  , withTime
+  ( withTime
   , debounce
   , debounceWith
   ) where
@@ -11,17 +10,8 @@ import Data.DateTime.Instant (Instant, instant, unInstant)
 import Data.Maybe (Maybe, fromMaybe, maybe)
 import Data.Time.Duration (Milliseconds)
 import Effect.Now (now)
-import Effect.Timer (clearInterval, setInterval)
 import FRP.Event (Event, makeEvent, subscribe)
 import FRP.Event.Class (fix, gateBy)
-
--- | Create an event which fires every specified number of milliseconds.
-interval :: Int -> Event Instant
-interval n = makeEvent \k -> do
-  id <- setInterval n do
-    time <- now
-    k time
-  pure (clearInterval id)
 
 -- | Create an event which reports the current time in milliseconds since the epoch.
 withTime :: forall a. Event a -> Event { value :: a, time :: Instant }

@@ -20,20 +20,28 @@ module FRP.Behavior
   , solve2'
   , fixB
   , animate
+  , stRefToBehavior
+  , refToBehavior
   ) where
 
 import Prelude
 
 import Control.Alt (alt)
 import Control.Apply (lift2)
+import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Internal (ST)
+import Control.Monad.ST.Internal as STRef
 import Data.Filterable (class Filterable, compact)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(Tuple))
 import Effect (Effect)
-import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, sampleOnRight, subscribe, withLast)
+import Effect.Ref as Ref
+import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, makeEvent, sampleOnRight, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
+import FRP.Event.Class (once)
 
 -- | `ABehavior` is the more general type of `Behavior`, which is parameterized
 -- | over some underlying `event` type.
@@ -88,7 +96,7 @@ behavior = ABehavior
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (sampleOnRight (pure a `alt` e))
+step a e = ABehavior (\e0 -> sampleOnRight ((once e0 $> a) `alt` e) e0)
 
 -- | Create a `Behavior` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -111,7 +119,7 @@ sample_ = sampleBy const
 -- | Switch `Behavior`s based on an `Event`.
 switcher :: forall event a. IsEvent event => ABehavior event a -> event (ABehavior event a) -> ABehavior event a
 switcher b0 e = behavior \s ->
-  keepLatest (pure (sample b0 s) `alt` map (\b -> sample b s) e)
+  keepLatest ((once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Behavior` on some `Event` by providing a predicate function.
 gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> ABehavior event p -> event a -> event a
@@ -311,5 +319,15 @@ animate
   :: forall scene
    . ABehavior Event scene
   -> (scene -> Effect Unit)
-  -> Effect (Effect Unit)
+  -> ST Global (ST Global Unit)
 animate scene render = subscribe (sample_ scene animationFrame) render
+
+-- | Turn an ST Ref into a behavior
+stRefToBehavior :: STRef.STRef Global ~> Behavior
+stRefToBehavior r = do
+  behavior \e -> makeEvent \k -> subscribe e \f -> liftST (STRef.read r) >>= k <<< f
+
+-- | Turn a Ref into a behavior
+refToBehavior :: Ref.Ref ~> Behavior
+refToBehavior r = do
+  behavior \e -> makeEvent \k -> subscribe e \f ->  Ref.read r >>= k <<< f
