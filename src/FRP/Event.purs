@@ -1,47 +1,9 @@
 module FRP.Event
-  ( -- Bus(..)
-  -- , BusT
-  -- , Create(..)
-  -- , CreateO(..)
-  -- , CreateOT
-  -- , CreatePure(..)
-  -- , CreatePureO(..)
-  -- , CreatePureOT
-  -- , CreatePureT
-  -- , CreateT
-  -- , Delay(..)
-  -- , DelayT
-  Event
+  ( Event
   , EventIO
   , EventIO'
-  -- , Hot(..)
-  -- , HotT
-  -- , Mailbox(..)
-  -- , MailboxT
-  -- , Mailboxed(..)
-  -- , MailboxedT
-  -- , MakeEvent(..)
-  -- , MakeEventO(..)
-  -- , MakeEventOT
-  -- , MakeEventT
-  -- , MakeLemmingEvent(..)
-  -- , MakeLemmingEventO(..)
-  -- , MakeLemmingEventOT
-  -- , MakeLemmingEventT
-  -- , MakePureEvent(..)
-  -- , MakePureEventT
-  -- , Memoize(..)
-  -- , MemoizeT
   , PureEventIO
   , PureEventIO'
-  -- , Subscribe(..)
-  -- , SubscribeO(..)
-  -- , SubscribeOT
-  -- , SubscribePure(..)
-  -- , SubscribePureO(..)
-  -- , SubscribePureOT
-  -- , SubscribePureT
-  -- , SubscribeT
   , Subscriber(..)
   , burning
   , bus
@@ -177,13 +139,6 @@ instance plusEvent :: Plus Event where
 
 instance applyEvent :: Apply Event where
   apply a b = biSampleOn a ((#) <$> b)
-
-instance applicativeEvent :: Applicative Event where
-  pure a = Event $ mkEffectFn2 \_ k -> do
-    runEffectFn1 k a
-    pure (pure unit)
-
-instance alternativeEvent :: Alternative Event
 
 instance eventIsEvent :: Class.IsEvent Event where
   keepLatest = keepLatest
@@ -660,4 +615,3 @@ delay n (Event e) = Event $ mkEffectFn2 \tf k -> do
     ids <- ERef.read tid
     for_ ids clearTimeout
     canceler
-

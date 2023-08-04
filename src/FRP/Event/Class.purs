@@ -6,6 +6,7 @@ module FRP.Event.Class
   , mapAccum
   , withLast
   , sampleOnRight
+  , once
   , (<|**>)
   , sampleOnRightOp
   , (<|*>)
@@ -28,7 +29,7 @@ module FRP.Event.Class
 
 import Prelude
 
-import Control.Alternative (class Alternative, (<|>))
+import Control.Alternative (class Alt, class Plus, (<|>))
 import Data.Compactable (compact)
 import Data.Filterable (class Filterable, filterMap)
 import Data.Maybe (Maybe(..), fromMaybe)
@@ -36,16 +37,15 @@ import Data.Tuple (Tuple(..), snd)
 
 -- | Functions which an `Event` type should implement:
 -- |
--- | - `fold`: combines incoming values using the specified function,
--- | starting with the specific initial value.
+-- | - `once`: emits an event once
 -- | - `keepLatest` flattens a nested event, reporting values only from the
 -- | most recent inner event.
--- | - `sampleOn`: samples an event at the times when a second event fires.
+-- | - `sampleOnRight`: samples an event at the times when a second event fires.
 -- | - `fix`: compute a fixed point, by feeding output events back in as
 -- | inputs.
--- | - `bang`: A one-shot event that happens NOW.
-class (Alternative event, Filterable event) <= IsEvent event where
+class (Plus event, Alt event, Filterable event) <= IsEvent event where
   keepLatest :: forall a. event (event a) -> event a
+  once :: event ~> event
   sampleOnRight :: forall a b. event a -> event (a -> b) -> event b
   sampleOnLeft :: forall a b. event a -> event (a -> b) -> event b
   fix :: forall i. (event i -> event i) -> event i
@@ -124,10 +124,9 @@ gateBy
   -> event b
 gateBy f sampled sampler = compact $
   (\p x -> if f p x then Just x else Nothing)
-    <$> (pure Nothing <|> Just <$> sampled)
+    <$> ((once sampler $> Nothing) <|> Just <$> sampled)
     <|*> sampler
 
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b
-fold f b e = fix \i -> sampleOnRight (i <|> pure b) ((flip f) <$> e)
-
+fold f b e = fix \i -> sampleOnRight (i <|> (once e $> b)) ((flip f) <$> e)
