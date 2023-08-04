@@ -23,7 +23,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (derivative', fixB, gate, integral', sample_, stRefToBehavior)
-import FRP.Event (Event, keepLatest, mailbox, memoize, merge, once, sampleOnRight, subscribe)
+import FRP.Event (Event, keepLatest, mailbox, merge, once, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold)
 import FRP.Event.Time (debounce)

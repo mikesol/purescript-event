@@ -5,6 +5,7 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
+  , makeEventE
   , mailbox'
   , mailbox
   , merge
@@ -326,6 +327,12 @@ makePureEvent e = Event $ mkSTFn2 \_ k -> do
     stEventToEvent :: forall aa. ((aa -> ST Global Unit) -> ST Global (ST Global Unit)) -> (aa -> Effect Unit) -> ST Global (ST Global Unit)
     stEventToEvent = unsafeCoerce
   stEventToEvent e (\a -> runEffectFn1 k a)
+
+makeEventE :: forall a. ((a -> Effect Unit) -> Effect (Effect Unit)) -> Effect { event :: Event a, unsubscribe :: Effect Unit }
+makeEventE e = do
+  { event, push } <- liftST create
+  unsubscribe <- e push
+  pure { event, unsubscribe }
 
 makeEventO
   :: forall a
