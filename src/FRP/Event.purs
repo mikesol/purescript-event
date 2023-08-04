@@ -5,6 +5,7 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
+  , memoize
   , makeEventE
   , mailbox'
   , mailbox
@@ -398,6 +399,16 @@ data ObjHack (a :: Type)
 foreign import objHack :: forall a. ST Global (ObjHack a)
 foreign import insertObjHack :: forall a. STFn3 Int a (ObjHack a) Global Unit
 foreign import deleteObjHack :: forall a. STFn2 Int (ObjHack a) Global Unit
+
+memoize :: forall a r. Event a -> (Event a -> r) -> Event r
+memoize e f = makeEvent \k -> do
+  { event, push } <- create
+  done <- STRef.new false
+  subscribe e \a -> do
+    o <- liftST $ STRef.read done
+    unless o $ k (f event)
+    void $ liftST $ STRef.write true done
+    push a
 
 create' :: forall a. ST Global (EventIO' a)
 create' = do

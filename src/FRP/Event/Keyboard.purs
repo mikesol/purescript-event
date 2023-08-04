@@ -14,7 +14,7 @@ import Data.Newtype (wrap)
 import Data.Set as Set
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (Event, makeEvent, subscribe)
+import FRP.Event (Event, makeEvent, makeEventE, subscribe)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
 import Web.HTML.Window (toEventTarget)
@@ -49,8 +49,11 @@ disposeKeyboard :: Keyboard -> Effect Unit
 disposeKeyboard (Keyboard { dispose }) = dispose
 
 -- | Create an `Event` which fires when a key is pressed
-down :: Event String
-down = makeEvent \k -> do
+down :: Effect
+                             { event :: Event String
+                             , unsubscribe :: Effect Unit
+                             }
+down = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
@@ -59,8 +62,11 @@ down = makeEvent \k -> do
   pure (removeEventListener (wrap "keydown") keyDownListener false target)
 
 -- | Create an `Event` which fires when a key is released
-up :: Event String
-up = makeEvent \k -> do
+up :: Effect
+                             { event :: Event String
+                             , unsubscribe :: Effect Unit
+                             }
+up = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->

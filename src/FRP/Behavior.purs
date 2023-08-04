@@ -30,7 +30,6 @@ import Control.Alt (alt)
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
-import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Data.Filterable (class Filterable, compact)
 import Data.Function (applyFlipped)
@@ -319,8 +318,13 @@ animate
   :: forall scene
    . ABehavior Event scene
   -> (scene -> Effect Unit)
-  -> ST Global (ST Global Unit)
-animate scene render = subscribe (sample_ scene animationFrame) render
+  -> Effect (Effect Unit)
+animate scene render = do
+  { event, unsubscribe }<- animationFrame
+  u2 <-liftST $ subscribe (sample_ scene event) render
+  pure do
+    unsubscribe
+    liftST u2
 
 -- | Turn an ST Ref into a behavior
 stRefToBehavior :: STRef.STRef Global ~> Behavior

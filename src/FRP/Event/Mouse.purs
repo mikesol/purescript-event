@@ -2,7 +2,6 @@ module FRP.Event.Mouse
   ( Mouse
   , getMouse
   , disposeMouse
-  , move
   , down
   , up
   , withPosition
@@ -11,7 +10,6 @@ module FRP.Event.Mouse
 
 import Prelude
 
-import Data.Compactable (compact)
 import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (wrap)
@@ -58,10 +56,6 @@ getMouse = do
 
 disposeMouse :: Mouse -> Effect Unit
 disposeMouse (Mouse { dispose }) = dispose
-
--- | Create an `Event` which fires when the mouse moves
-move :: Mouse -> Event { x :: Int, y :: Int }
-move m = compact (_.pos <$> withPosition m (pure unit))
 
 -- | Create an `Event` which fires when a mouse button is pressed
 down :: Effect { event :: Event Int
