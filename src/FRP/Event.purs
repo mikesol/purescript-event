@@ -36,7 +36,9 @@ import Control.Alternative (class Alt, class Alternative, class Plus)
 import Control.Apply (lift2)
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
-import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn2)
+import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Internal as STRef
+import Control.Monad.ST.Uncurried (STFn1, STFn2, mkSTFn1, mkSTFn2, runSTFn1)
 import Data.Array (deleteBy, length)
 import Data.Array as Array
 import Data.Array.ST as STArray
@@ -69,7 +71,7 @@ import Unsafe.Reference (unsafeRefEq)
 -- | combined using the various functions and instances provided in this module.
 -- |
 -- | Events are consumed by providing a callback using the `subscribe` function.
-newtype Event a = Event (EffectFn2 Boolean (EffectFn1 a Unit) (Effect Unit))
+newtype Event a = Event (STFn2 Boolean (EffectFn1 a Unit) Global (ST Global Unit))
 
 -- boolean :: t = pure,false = impure
 
@@ -145,6 +147,7 @@ instance eventIsEvent :: Class.IsEvent Event where
   sampleOnRight = sampleOnRight
   sampleOnLeft = sampleOnLeft
   fix = fix
+  once = once
 
 instance semigroupEvent :: (Semigroup a) => Semigroup (Event a) where
   append = lift2 append
@@ -168,6 +171,29 @@ instance semiringEvent :: (Semiring a) => Semiring (Event a) where
 
 instance ringEvent :: (Ring a) => Ring (Event a) where
   sub = lift2 sub
+
+once :: forall a. Event a -> Event a
+once (Event e) =
+  Event $ mkSTFn1 \k -> do
+    latest <- STRef.new Nothing
+    u <- STRef.new $ pure unit
+    c <-
+      runSTFn1 e $ mkEffectFn1 \a -> do
+        o <- liftST $ STRef.read latest
+        case o of
+          Nothing -> do
+            void $ liftST $ STRef.write (Just a) latest
+            runEffectFn1 k a
+            liftST $ join (STRef.read u)
+          -- should not hit here
+          Just _ -> pure unit
+    void $ STRef.write c u
+    o <- liftST $ STRef.read latest
+    case o of
+      Just _ -> c
+      _ -> pure unit
+    pure do
+      c
 
 -- | Create an `Event` which only fires when a predicate holds.
 filter :: forall a b. (a -> Maybe b) -> Event a -> Event b
@@ -312,7 +338,7 @@ subscribeO = mkEffectFn2 \(Event e) k -> runEffectFn2 e false k
 subscribePureO
   :: forall a r
    . STFn2 (Event a) (STFn1 a r Unit) r (ST r Unit)
-subscribePureO = mkSTFn2 \(Event e) k -> effectfulUnsubscribeToSTUnsubscribe (runEffectFn2 e true (stPusherToEffectPusher k))
+subscribePureO = mkSTFn2 \(Event e) k -> effectfulUnsubscribeToSTUnsubscribe (runSTFn2 e true (stPusherToEffectPusher k))
   where
   effectfulUnsubscribeToSTUnsubscribe :: forall rr. Effect (Effect Unit) -> ST rr (ST rr Unit)
   effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
