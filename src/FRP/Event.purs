@@ -5,6 +5,8 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
+  , mailbox'
+  , mailbox
   , merge
   , create
   , createO
@@ -284,9 +286,6 @@ subscribePureO
    . STFn2 (Event a) (STFn1 a Global Unit) Global (ST Global Unit)
 subscribePureO = mkSTFn2 \(Event e) k -> (runSTFn2 e true (stPusherToEffectPusher k))
   where
-  effectfulUnsubscribeToSTUnsubscribe :: forall rr. Effect (Effect Unit) -> ST Global (ST Global Unit)
-  effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
-
   stPusherToEffectPusher :: forall aa. (STFn1 a Global Unit) -> EffectFn1 aa Unit
   stPusherToEffectPusher = unsafeCoerce
 
@@ -297,8 +296,6 @@ subscribePure
   -> ST Global (ST Global Unit)
 subscribePure (Event e) k =  runSTFn2 e true (mkEffectFn1 (stPusherToEffectPusher k))
   where
-  effectfulUnsubscribeToSTUnsubscribe :: forall rr. Effect (Effect Unit) -> ST Global (ST Global Unit)
-  effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
 
   stPusherToEffectPusher :: forall aa. (aa -> ST Global Unit) -> aa -> Effect Unit
   stPusherToEffectPusher = unsafeCoerce
@@ -343,8 +340,6 @@ makeLemmingEvent
   -> Event a
 makeLemmingEvent e = Event $ mkSTFn2 \tf k -> do
   let
-    effectfulUnsubscribeToSTUnsubscribe :: forall rr. Effect (Effect Unit) -> ST Global (ST Global Unit)
-    effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
 
     stPusherToEffectPusher :: forall aa. (aa -> ST Global Unit) -> aa -> Effect Unit
     stPusherToEffectPusher = unsafeCoerce
@@ -365,8 +360,6 @@ makeLemmingEventO
   -> Event a
 makeLemmingEventO e = Event $ mkSTFn2 \tf k -> do
   let
-    effectfulUnsubscribeToSTUnsubscribe :: forall rr. Effect (Effect Unit) -> ST Global (ST Global Unit)
-    effectfulUnsubscribeToSTUnsubscribe = unsafeCoerce
 
     stPusherToEffectPusher :: forall aa. STFn1 aa Global Unit -> EffectFn1 aa Unit
     stPusherToEffectPusher = unsafeCoerce
@@ -470,6 +463,14 @@ createO
   :: forall a
    . ST Global (EventIO' a)
 createO = create'
+
+mailbox :: forall a b. Ord a => ST Global { push :: { address :: a, payload :: b } -> Effect Unit, event :: a -> Event b }
+mailbox = do
+  { push, event } <- mailbox'
+  pure
+    { push: \ap -> runEffectFn1 push ap
+    , event
+    }
 
 mailbox' :: forall a b. Ord a => ST Global { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }
 mailbox' = do
