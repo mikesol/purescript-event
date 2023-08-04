@@ -11,13 +11,13 @@ export const fastForeachE = (as, f) => {
 }
 
 export const fastForeachOhE = (o, f) => {
-  for (const a in o) {
-      f(o[a]);
-  }
-}
+  o.forEach((v) => {
+    f(v);
+  });
+};
 
 export const insertObjHack = (k,v,o) => {
-  m.set(k, v);
+  o.set(k, v);
 };
 export const deleteObjHack = (k, m) => {
   return m.delete(k);
