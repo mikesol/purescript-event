@@ -16,8 +16,12 @@ export const fastForeachOhE = (o, f) => {
   }
 }
 
-export const objHack = () => ({});
-
-export const insertObjHack = (k,v,o) => { o[k] = v; }
-
-export const deleteObjHack = (k,o) => { delete o[k]; }
+export const insertObjHack = (k,v,o) => {
+  m.set(k, v);
+};
+export const deleteObjHack = (k, m) => {
+  return m.delete(k);
+};
+export const objHack = () => {
+  return new Map();
+};
