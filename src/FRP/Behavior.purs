@@ -1,27 +1,28 @@
 module FRP.Behavior
-  ( Behavior
-  , ABehavior
+  ( ABehavior
+  , Behavior
+  , animate
   , behavior
-  , step
+  , derivative
+  , derivative'
+  , effectToBehavior
+  , fixB
+  , gate
+  , gateBy
+  , integral
+  , integral'
+  , refToBehavior
   , sample
   , sampleBy
   , sample_
-  , gate
-  , gateBy
-  , unfold
-  , switcher
-  , integral
-  , integral'
-  , derivative
-  , derivative'
   , solve
   , solve'
   , solve2
   , solve2'
-  , fixB
-  , animate
   , stRefToBehavior
-  , refToBehavior
+  , step
+  , switcher
+  , unfold
   ) where
 
 import Prelude
@@ -320,8 +321,8 @@ animate
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
 animate scene render = do
-  { event, unsubscribe }<- animationFrame
-  u2 <-liftST $ subscribe (sample_ scene event) render
+  { event, unsubscribe } <- animationFrame
+  u2 <- liftST $ subscribe (sample_ scene event) render
   pure do
     unsubscribe
     liftST u2
@@ -334,4 +335,9 @@ stRefToBehavior r = do
 -- | Turn a Ref into a behavior
 refToBehavior :: Ref.Ref ~> Behavior
 refToBehavior r = do
-  behavior \e -> makeEvent \k -> subscribe e \f ->  Ref.read r >>= k <<< f
+  behavior \e -> makeEvent \k -> subscribe e \f -> Ref.read r >>= k <<< f
+
+-- | Turn an Effect into a behavior
+effectToBehavior :: Effect ~> Behavior
+effectToBehavior ee = do
+  behavior \e -> makeEvent \k -> subscribe e \f -> ee >>= k <<< f
