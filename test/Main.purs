@@ -23,7 +23,7 @@ import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
 import FRP.Behavior (behavior, derivative', fixB, gate, integral', sample, sample_, stRefToBehavior)
-import FRP.Event (Event, mailbox, makeLemmingEvent, memoize, merge, subscribe)
+import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoize, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
@@ -187,6 +187,22 @@ main = do
               , "h3"
               , "b"
               , "h3"
+              ]
+            liftST u
+          it "should respond correctly to internal pushes" $ liftEffect do
+            r <- liftST $ STRef.new []
+            ep <- liftST $ Event.create
+            let
+              evt = makeEvent \k -> Event.subscribe ep.event \i -> do
+                k i
+                when i (ep.push (not i))
+            u <- liftST $ subscribe evt \i ->
+              liftST $ void $ STRef.modify (flip Array.snoc i) r
+            ep.push true
+            v <- liftST $ STRef.read r
+            v `shouldEqual`
+              [ true
+              , false
               ]
             liftST u
           it "should handle filter 1" $ liftEffect do

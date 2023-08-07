@@ -42,7 +42,7 @@ export const deleteObjHack = (k, o) => {
 
 export const fastForeachOhE = (o, f) => {
   if (o.r) {
-    o.q.push(() => fastForeachE(o, f));
+    o.q.push(() => {fastForeachOhE(o, f)});
     return;
   }
   o.r = true;
@@ -61,8 +61,8 @@ export const fastForeachOhE = (o, f) => {
   o.m.length = 0;
   o.m.push(M);
   let fn;
+  o.r = false;
   while (fn = o.q.shift()) {
     fn();
   }
-  o.r = false;
 };
