@@ -113,17 +113,39 @@ main = do
                     , flip sample e1
                         $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
                     ]
-            u <- liftST $ subscribe (sample (bhv (bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3"))) ep.event) \i ->
+            u <- liftST $ subscribe (sample (bhv (bhv (bhv ((bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3")))))) ep.event) \i ->
               liftST $ void $ STRef.modify (flip Array.snoc i) r
             ep.push identity
             v <- liftST $ STRef.read r
-            v `shouldEqual` [
-               -- first level
-               "div", "span",
-               -- full second level
-               "div", "span", "h3", "b",
-               -- first level again
-               "b" ]
+            v `shouldEqual`
+              [
+                -- first level
+                "div"
+              , "span"
+              ,
+                -- second level
+                "div"
+              , "span"
+              ,
+                -- third level
+                "div"
+              , "span"
+              ,
+                -- fourth level
+                "div"
+              , "span"
+              , "h3"
+              , "b"
+              ,
+                -- third level
+                "b"
+              ,
+                -- second level
+                "b"
+              ,
+                -- first level
+                "b"
+              ]
             liftST u
           it "should handle filter 1" $ liftEffect do
             r <- liftST $ STRef.new []
