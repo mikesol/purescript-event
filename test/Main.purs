@@ -147,6 +147,48 @@ main = do
                 "b"
               ]
             liftST u
+          it "should fire in order for behaviors 2" $ liftEffect do
+            r <- liftST $ STRef.new []
+            ep <- liftST $ Event.create
+            let
+              bhv c = behavior \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
+                -- first element
+                k0 (f0 "div")
+                void $ flip s0 k0 $ flip sample e0 $ behavior \e1 ->
+                  merge
+                    [ flip sample e1
+                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
+                    , flip sample e1 $ c
+                    , flip sample e1
+                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
+                    , flip sample e1 $ c
+                    ]
+            u <- liftST $ subscribe (sample (bhv (bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3"))) ep.event) \i ->
+              liftST $ void $ STRef.modify (flip Array.snoc i) r
+            ep.push identity
+            v <- liftST $ STRef.read r
+            v `shouldEqual`
+              [
+                -- first level
+                "div"
+              , "span"
+              ,
+                -- second level
+                "div"
+              , "span"
+              , "h3"
+              , "b"
+              , "h3"
+              -- first level
+              , "b"
+              , -- second level
+                "div"
+              , "span"
+              , "h3"
+              , "b"
+              , "h3"
+              ]
+            liftST u
           it "should handle filter 1" $ liftEffect do
             r <- liftST $ STRef.new []
             ep <- liftST $ Event.create

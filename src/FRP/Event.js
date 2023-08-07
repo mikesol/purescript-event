@@ -48,6 +48,7 @@ export const fastForeachOhE = (o, f) => {
       f(v);
       if (o[i + 1].size) run(i + 1);
       o[i + 1].clear();
+      o.length = i + 1 + 1;
       M.set(k, v);
     });
   };
