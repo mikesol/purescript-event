@@ -22,8 +22,8 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (derivative', fixB, gate, integral', sample_, stRefToBehavior)
-import FRP.Event (Event, mailbox, memoize, merge, subscribe)
+import FRP.Behavior (behavior, derivative', fixB, gate, integral', sample, sample_, stRefToBehavior)
+import FRP.Event (Event, mailbox, makeLemmingEvent, memoize, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
@@ -94,6 +94,36 @@ main = do
             ep.push 0
             v <- liftST $ STRef.read r
             v `shouldEqual` [ 10, 3, 1, 1 ]
+            liftST u
+          -- this test shows how a behavior based framework could be used
+          -- to emit html, where the webpage is a behavior and it is
+          -- rendered based on an initial event
+          it "should fire in order for behaviors" $ liftEffect do
+            r <- liftST $ STRef.new []
+            ep <- liftST $ Event.create
+            let
+              bhv c = behavior \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
+                -- first element
+                k0 (f0 "div")
+                void $ flip s0 k0 $ flip sample e0 $ behavior \e1 ->
+                  merge
+                    [ flip sample e1
+                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
+                    , flip sample e1 $ c
+                    , flip sample e1
+                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
+                    ]
+            u <- liftST $ subscribe (sample (bhv (bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3"))) ep.event) \i ->
+              liftST $ void $ STRef.modify (flip Array.snoc i) r
+            ep.push identity
+            v <- liftST $ STRef.read r
+            v `shouldEqual` [
+               -- first level
+               "div", "span",
+               -- full second level
+               "div", "span", "h3", "b",
+               -- first level again
+               "b" ]
             liftST u
           it "should handle filter 1" $ liftEffect do
             r <- liftST $ STRef.new []
@@ -186,7 +216,7 @@ main = do
             u <- liftST $ subscribe (e ep.event) \i ->
               liftST $ void $ STRef.modify (flip Array.snoc i) r
             ep.push unit
-            liftST (STRef.read r) >>= \y -> y `shouldEqual` [Tuple 2 3, Tuple 2 4]
+            liftST (STRef.read r) >>= \y -> y `shouldEqual` [ Tuple 2 3, Tuple 2 4 ]
             liftST u
           describe "Performance" do
             it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
