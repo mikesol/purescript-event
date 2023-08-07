@@ -24,15 +24,15 @@ export const fastForeachE = (as, f) => {
 /////////////////////////
 
 export const objHack = () => {
-  return [new Map()];
+  return { r: false, q: [], m: [new Map()] };
 };
 
 export const insertObjHack = (k, v, o) => {
-  o[o.length - 1].set(k, v);
+  o.m[o.m.length - 1].set(k, v);
 };
 
 export const deleteObjHack = (k, o) => {
-  for (const m of o) {
+  for (const m of o.m) {
     if (m.delete(k)) {
       return true;
     }
@@ -41,18 +41,28 @@ export const deleteObjHack = (k, o) => {
 };
 
 export const fastForeachOhE = (o, f) => {
+  if (o.r) {
+    o.q.push(() => fastForeachE(o, f));
+    return;
+  }
+  o.r = true;
   const M = new Map();
   const run = (i) => {
-    o.push(new Map());
-    o[i].forEach((v, k) => {
+    o.m.push(new Map());
+    o.m[i].forEach((v, k) => {
       f(v);
-      if (o[i + 1].size) run(i + 1);
-      o[i + 1].clear();
-      o.length = i + 1 + 1;
+      if (o.m[i + 1].size) run(i + 1);
+      o.m[i + 1].clear();
+      o.m.length = i + 1 + 1;
       M.set(k, v);
     });
   };
   run(0);
-  o.length = 0;
-  o.push(M);
+  o.m.length = 0;
+  o.m.push(M);
+  let fn;
+  while (fn = o.q.shift()) {
+    fn();
+  }
+  o.r = false;
 };
