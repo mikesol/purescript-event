@@ -22,7 +22,7 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Behavior (behavior, derivative', fixB, gate, integral', sample, sample_, stRefToBehavior)
+import FRP.Poll (poll, derivative', fixB, gate, integral', sample, sample_, stRefToPoll)
 import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoize, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
@@ -95,25 +95,25 @@ main = do
             v <- liftST $ STRef.read r
             v `shouldEqual` [ 10, 3, 1, 1 ]
             liftST u
-          -- this test shows how a behavior based framework could be used
-          -- to emit html, where the webpage is a behavior and it is
+          -- this test shows how a poll based framework could be used
+          -- to emit html, where the webpage is a poll and it is
           -- rendered based on an initial event
-          it "should fire in order for behaviors" $ liftEffect do
+          it "should fire in order for polls" $ liftEffect do
             r <- liftST $ STRef.new []
             ep <- liftST $ Event.create
             let
-              bhv c = behavior \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
+              bhv c = poll \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
                 -- first element
                 k0 (f0 "div")
-                void $ flip s0 k0 $ flip sample e0 $ behavior \e1 ->
+                void $ flip s0 k0 $ flip sample e0 $ poll \e1 ->
                   merge
                     [ flip sample e1
-                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
+                        $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
                     , flip sample e1 $ c
                     , flip sample e1
-                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
+                        $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
                     ]
-            u <- liftST $ subscribe (sample (bhv (bhv (bhv ((bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3")))))) ep.event) \i ->
+            u <- liftST $ subscribe (sample (bhv (bhv (bhv ((bhv $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3")))))) ep.event) \i ->
               liftST $ void $ STRef.modify (flip Array.snoc i) r
             ep.push identity
             v <- liftST $ STRef.read r
@@ -147,23 +147,23 @@ main = do
                 "b"
               ]
             liftST u
-          it "should fire in order for behaviors 2" $ liftEffect do
+          it "should fire in order for polls 2" $ liftEffect do
             r <- liftST $ STRef.new []
             ep <- liftST $ Event.create
             let
-              bhv c = behavior \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
+              bhv c = poll \e0 -> makeLemmingEvent \s0 k0 -> s0 e0 \f0 -> do
                 -- first element
                 k0 (f0 "div")
-                void $ flip s0 k0 $ flip sample e0 $ behavior \e1 ->
+                void $ flip s0 k0 $ flip sample e0 $ poll \e1 ->
                   merge
                     [ flip sample e1
-                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
+                        $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "span")
                     , flip sample e1 $ c
                     , flip sample e1
-                        $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
+                        $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "b")
                     , flip sample e1 $ c
                     ]
-            u <- liftST $ subscribe (sample (bhv (bhv $ behavior \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3"))) ep.event) \i ->
+            u <- liftST $ subscribe (sample (bhv (bhv $ poll \e2 -> makeLemmingEvent \s2 k2 -> s2 e2 \f2 -> k2 (f2 "h3"))) ep.event) \i ->
               liftST $ void $ STRef.modify (flip Array.snoc i) r
             ep.push identity
             v <- liftST $ STRef.read r
@@ -484,7 +484,7 @@ main = do
               eio <- liftST $ Event.create
               r <- liftST $ STRef.new false
               n <- liftST $ STRef.new 0
-              let b = stRefToBehavior r
+              let b = stRefToPoll r
               _ <- liftST $ Event.subscribe (gate b eio.event) \_ ->
                 liftST $ void $ STRef.modify (add 1) n
               do

@@ -1,17 +1,17 @@
-module FRP.Behavior
-  ( ABehavior
-  , Behavior
+module FRP.Poll
+  ( APoll
+  , Poll
   , animate
-  , behavior
+  , poll
   , derivative
   , derivative'
-  , effectToBehavior
+  , effectToPoll
   , fixB
   , gate
   , gateBy
   , integral
   , integral'
-  , refToBehavior
+  , refToPoll
   , sample
   , sampleBy
   , sample_
@@ -19,7 +19,7 @@ module FRP.Behavior
   , solve'
   , solve2
   , solve2'
-  , stRefToBehavior
+  , stRefToPoll
   , step
   , switcher
   , unfold
@@ -43,36 +43,36 @@ import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, makeEvent, sample
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class (once)
 
--- | `ABehavior` is the more general type of `Behavior`, which is parameterized
+-- | `APoll` is the more general type of `Poll`, which is parameterized
 -- | over some underlying `event` type.
 -- |
--- | Normally, you should use `Behavior` instead, but this type
+-- | Normally, you should use `Poll` instead, but this type
 -- | can also be used with other types of events, including the ones in the
 -- | `Semantic` module.
-newtype ABehavior event a = ABehavior (forall b. event (a -> b) -> event b)
+newtype APoll event a = APoll (forall b. event (a -> b) -> event b)
 
--- | A `Behavior` acts like a continuous function of time.
+-- | A `Poll` acts like a continuous function of time.
 -- |
--- | We can construct a sample a `Behavior` from some `Event`, combine `Behavior`s
--- | using `Applicative`, and sample a final `Behavior` on some other `Event`.
-type Behavior = ABehavior Event
+-- | We can construct a sample a `Poll` from some `Event`, combine `Poll`s
+-- | using `Applicative`, and sample a final `Poll` on some other `Event`.
+type Poll = APoll Event
 
-instance functorABehavior :: Functor event => Functor (ABehavior event) where
-  map f (ABehavior b) = ABehavior \e -> b (map (_ <<< f) e)
+instance functorAPoll :: Functor event => Functor (APoll event) where
+  map f (APoll b) = APoll \e -> b (map (_ <<< f) e)
 
-instance applyABehavior :: Functor event => Apply (ABehavior event) where
-  apply (ABehavior f) (ABehavior a) = ABehavior \e -> a (f (compose <$> e))
+instance applyAPoll :: Functor event => Apply (APoll event) where
+  apply (APoll f) (APoll a) = APoll \e -> a (f (compose <$> e))
 
-instance applicativeABehavior :: Functor event => Applicative (ABehavior event) where
-  pure a = ABehavior \e -> applyFlipped a <$> e
+instance applicativeAPoll :: Functor event => Applicative (APoll event) where
+  pure a = APoll \e -> applyFlipped a <$> e
 
-instance semigroupABehavior :: (Functor event, Semigroup a) => Semigroup (ABehavior event a) where
+instance semigroupAPoll :: (Functor event, Semigroup a) => Semigroup (APoll event a) where
   append = lift2 append
 
-instance monoidABehavior :: (Functor event, Monoid a) => Monoid (ABehavior event a) where
+instance monoidAPoll :: (Functor event, Monoid a) => Monoid (APoll event a) where
   mempty = pure mempty
 
-instance heytingAlgebraABehavior :: (Functor event, HeytingAlgebra a) => HeytingAlgebra (ABehavior event a) where
+instance heytingAlgebraAPoll :: (Functor event, HeytingAlgebra a) => HeytingAlgebra (APoll event a) where
   tt = pure tt
   ff = pure ff
   not = map not
@@ -80,53 +80,53 @@ instance heytingAlgebraABehavior :: (Functor event, HeytingAlgebra a) => Heyting
   conj = lift2 conj
   disj = lift2 disj
 
-instance semiringABehavior :: (Functor event, Semiring a) => Semiring (ABehavior event a) where
+instance semiringAPoll :: (Functor event, Semiring a) => Semiring (APoll event a) where
   zero = pure zero
   one = pure one
   add = lift2 add
   mul = lift2 mul
 
-instance ringABehavior :: (Functor event, Ring a) => Ring (ABehavior event a) where
+instance ringAPoll :: (Functor event, Ring a) => Ring (APoll event a) where
   sub = lift2 sub
 
--- | Construct a `Behavior` from its sampling function.
-behavior :: forall event a. (forall b. event (a -> b) -> event b) -> ABehavior event a
-behavior = ABehavior
+-- | Construct a `Poll` from its sampling function.
+poll :: forall event a. (forall b. event (a -> b) -> event b) -> APoll event a
+poll = APoll
 
--- | Create a `Behavior` which is updated when an `Event` fires, by providing
+-- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value.
-step :: forall event a. IsEvent event => a -> event a -> ABehavior event a
-step a e = ABehavior (\e0 -> sampleOnRight ((once e0 $> a) `alt` e) e0)
+step :: forall event a. IsEvent event => a -> event a -> APoll event a
+step a e = APoll (\e0 -> sampleOnRight ((once e0 $> a) `alt` e) e0)
 
--- | Create a `Behavior` which is updated when an `Event` fires, by providing
+-- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
 -- | to create a new value.
-unfold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> ABehavior event b
+unfold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> APoll event b
 unfold f a e = step a (fold f a e)
 
--- | Sample a `Behavior` on some `Event`.
-sample :: forall event a b. ABehavior event a -> event (a -> b) -> event b
-sample (ABehavior b) e = b e
+-- | Sample a `Poll` on some `Event`.
+sample :: forall event a b. APoll event a -> event (a -> b) -> event b
+sample (APoll b) e = b e
 
--- | Sample a `Behavior` on some `Event` by providing a combining function.
-sampleBy :: forall event a b c. Functor event => (a -> b -> c) -> ABehavior event a -> event b -> event c
+-- | Sample a `Poll` on some `Event` by providing a combining function.
+sampleBy :: forall event a b c. Functor event => (a -> b -> c) -> APoll event a -> event b -> event c
 sampleBy f b e = sample (map f b) (map applyFlipped e)
 
--- | Sample a `Behavior` on some `Event`, discarding the event's values.
-sample_ :: forall event a b. Functor event => ABehavior event a -> event b -> event a
+-- | Sample a `Poll` on some `Event`, discarding the event's values.
+sample_ :: forall event a b. Functor event => APoll event a -> event b -> event a
 sample_ = sampleBy const
 
--- | Switch `Behavior`s based on an `Event`.
-switcher :: forall event a. IsEvent event => ABehavior event a -> event (ABehavior event a) -> ABehavior event a
-switcher b0 e = behavior \s ->
+-- | Switch `Poll`s based on an `Event`.
+switcher :: forall event a. IsEvent event => APoll event a -> event (APoll event a) -> APoll event a
+switcher b0 e = poll \s ->
   keepLatest ((once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
 
--- | Sample a `Behavior` on some `Event` by providing a predicate function.
-gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> ABehavior event p -> event a -> event a
+-- | Sample a `Poll` on some `Event` by providing a predicate function.
+gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
 gateBy f ps xs = compact (sampleBy (\p x -> if f p x then Just x else Nothing) ps xs)
 
--- | Filter an `Event` by the boolean value of a `Behavior`.
-gate :: forall event a. Filterable event => ABehavior event Boolean -> event a -> event a
+-- | Filter an `Event` by the boolean value of a `Poll`.
+gate :: forall event a. Filterable event => APoll event Boolean -> event a -> event a
 gate = gateBy const
 
 -- | Integrate with respect to some measure of time.
@@ -145,11 +145,11 @@ integral
   => Semiring a
   => (((a -> t) -> t) -> a)
   -> a
-  -> ABehavior event t
-  -> ABehavior event a
-  -> ABehavior event a
+  -> APoll event t
+  -> APoll event a
+  -> APoll event a
 integral g initial t b =
-  ABehavior \e ->
+  APoll \e ->
     let
       x = sample b (e $> identity)
       y = withLast (sampleBy Tuple t x)
@@ -172,9 +172,9 @@ integral'
    . IsEvent event
   => Field t
   => t
-  -> ABehavior event t
-  -> ABehavior event t
-  -> ABehavior event t
+  -> APoll event t
+  -> APoll event t
+  -> APoll event t
 integral' = integral (_ $ identity)
 
 -- | Differentiate with respect to some measure of time.
@@ -192,11 +192,11 @@ derivative
   => Field t
   => Ring a
   => (((a -> t) -> t) -> a)
-  -> ABehavior event t
-  -> ABehavior event a
-  -> ABehavior event a
+  -> APoll event t
+  -> APoll event a
+  -> APoll event a
 derivative g t b =
-  ABehavior \e ->
+  APoll \e ->
     let
       x = sample b (e $> identity)
       y = withLast (sampleBy Tuple t x)
@@ -215,15 +215,15 @@ derivative'
   :: forall event t
    . IsEvent event
   => Field t
-  => ABehavior event t
-  -> ABehavior event t
-  -> ABehavior event t
+  => APoll event t
+  -> APoll event t
+  -> APoll event t
 derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
-fixB :: forall event a. IsEvent event => a -> (ABehavior event a -> ABehavior event a) -> ABehavior event a
+fixB :: forall event a. IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
 fixB a f =
-  behavior \s ->
+  poll \s ->
     sampleOnRight
       ( fix \event ->
           let
@@ -252,9 +252,9 @@ solve
   => Semiring a
   => (((a -> t) -> t) -> a)
   -> a
-  -> Behavior t
-  -> (Behavior a -> Behavior a)
-  -> Behavior a
+  -> Poll t
+  -> (Poll a -> Poll a)
+  -> Poll a
 solve g a0 t f = fixB a0 \b -> integral g a0 t (f b)
 
 -- | Solve a first order differential equation.
@@ -265,9 +265,9 @@ solve'
   :: forall a
    . Field a
   => a
-  -> Behavior a
-  -> (Behavior a -> Behavior a)
-  -> Behavior a
+  -> Poll a
+  -> (Poll a -> Poll a)
+  -> Poll a
 solve' = solve (_ $ identity)
 
 -- | Solve a second order differential equation of the form
@@ -290,9 +290,9 @@ solve2
   => (((a -> t) -> t) -> a)
   -> a
   -> a
-  -> Behavior t
-  -> (Behavior a -> Behavior a -> Behavior a)
-  -> Behavior a
+  -> Poll t
+  -> (Poll a -> Poll a -> Poll a)
+  -> Poll a
 solve2 g a0 da0 t f =
   fixB a0 \b ->
     integral g a0 t
@@ -309,15 +309,15 @@ solve2'
    . Field a
   => a
   -> a
-  -> Behavior a
-  -> (Behavior a -> Behavior a -> Behavior a)
-  -> Behavior a
+  -> Poll a
+  -> (Poll a -> Poll a -> Poll a)
+  -> Poll a
 solve2' = solve2 (_ $ identity)
 
--- | Animate a `Behavior` by providing a rendering function.
+-- | Animate a `Poll` by providing a rendering function.
 animate
   :: forall scene
-   . ABehavior Event scene
+   . APoll Event scene
   -> (scene -> Effect Unit)
   -> Effect (Effect Unit)
 animate scene render = do
@@ -327,17 +327,17 @@ animate scene render = do
     unsubscribe
     liftST u2
 
--- | Turn an ST Ref into a behavior
-stRefToBehavior :: STRef.STRef Global ~> Behavior
-stRefToBehavior r = do
-  behavior \e -> makeEvent \k -> subscribe e \f -> liftST (STRef.read r) >>= k <<< f
+-- | Turn an ST Ref into a poll
+stRefToPoll :: STRef.STRef Global ~> Poll
+stRefToPoll r = do
+  poll \e -> makeEvent \k -> subscribe e \f -> liftST (STRef.read r) >>= k <<< f
 
--- | Turn a Ref into a behavior
-refToBehavior :: Ref.Ref ~> Behavior
-refToBehavior r = do
-  behavior \e -> makeEvent \k -> subscribe e \f -> Ref.read r >>= k <<< f
+-- | Turn a Ref into a poll
+refToPoll :: Ref.Ref ~> Poll
+refToPoll r = do
+  poll \e -> makeEvent \k -> subscribe e \f -> Ref.read r >>= k <<< f
 
--- | Turn an Effect into a behavior
-effectToBehavior :: Effect ~> Behavior
-effectToBehavior ee = do
-  behavior \e -> makeEvent \k -> subscribe e \f -> ee >>= k <<< f
+-- | Turn an Effect into a poll
+effectToPoll :: Effect ~> Poll
+effectToPoll ee = do
+  poll \e -> makeEvent \k -> subscribe e \f -> ee >>= k <<< f
