@@ -24,6 +24,10 @@ module FRP.Poll
   , step
   , switcher
   , unfold
+  , create
+  , createPure
+  , mailbox
+  , memoize
   ) where
 
 import Prelude
@@ -32,6 +36,7 @@ import Control.Alt (class Alt, alt)
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
+import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Control.Plus (class Plus, empty)
 import Control.Semigroupoid (composeFlipped)
@@ -45,8 +50,9 @@ import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
 import FRP.Event (class IsEvent, Event, fold, makeEvent, subscribe, withLast)
+import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
-import FRP.Event.Class as Event
+import FRP.Event.Class as EClass
 
 -- | `APoll` is the more general type of `Poll`, which is parameterized
 -- | over some underlying `event` type.
@@ -102,7 +108,7 @@ poll = APoll
 -- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> APoll event a
-step a e = APoll (\e0 -> Event.sampleOnRight ((Event.once e0 $> a) `alt` e) e0)
+step a e = APoll (\e0 -> EClass.sampleOnRight ((EClass.once e0 $> a) `alt` e) e0)
 
 -- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
@@ -118,7 +124,7 @@ instance Plus event => Plus (APoll event) where
 
 -- | A poll where the answers are rigged by the nefarious `Event a`
 sham :: forall event. IsEvent event => event ~> APoll event
-sham i = poll \e -> Event.keepLatest (map (\f -> f <$> i) e)
+sham i = poll \e -> EClass.keepLatest (map (\f -> f <$> i) e)
 
 -- | Sample a `Poll` on some `Event`.
 sample :: forall event a b. APoll event a -> event (a -> b) -> event b
@@ -135,7 +141,7 @@ sample_ = sampleBy const
 -- | Switch `Poll`s based on an `Event`.
 switcher :: forall event a. IsEvent event => APoll event a -> event (APoll event a) -> APoll event a
 switcher b0 e = poll \s ->
-  Event.keepLatest ((Event.once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
+  EClass.keepLatest ((EClass.once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Poll` on some `Event` by providing a predicate function.
 gateBy :: forall event p a. Filterable.Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
@@ -171,7 +177,7 @@ integral g initial t b =
       y = withLast (sampleBy Tuple t x)
       z = fold approx initial y
     in
-      Event.sampleOnRight z e
+      EClass.sampleOnRight z e
   where
   approx s { last: Nothing } = s
   approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
@@ -218,7 +224,7 @@ derivative g t b =
       y = withLast (sampleBy Tuple t x)
       z = map approx y
     in
-      Event.sampleOnRight z e
+      EClass.sampleOnRight z e
   where
   approx { last: Nothing } = zero
   approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
@@ -240,8 +246,8 @@ derivative' = derivative (_ $ identity)
 fixB :: forall event a. IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
 fixB a f =
   poll \s ->
-    Event.sampleOnRight
-      ( Event.fix \event ->
+    EClass.sampleOnRight
+      ( EClass.fix \event ->
           let
             b = f (step a event)
           in
@@ -387,19 +393,19 @@ instance (Functor event, Filterable.Compactable event) => Filterable.Filterable 
   partition = Filterable.partitionDefault
 
 sampleOnRight :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
-sampleOnRight a b = poll \e -> Event.sampleOnRight (sample_ a e) (sampleBy composeFlipped b e)
+sampleOnRight a b = poll \e -> EClass.sampleOnRight (sample_ a e) (sampleBy composeFlipped b e)
 
 sampleOnLeft :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
-sampleOnLeft a b = poll \e -> Event.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
+sampleOnLeft a b = poll \e -> EClass.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
 
 keepLatest :: forall event a. IsEvent event => APoll event (APoll event a) -> APoll event a
-keepLatest a = poll \e -> Event.keepLatest (sample_ (map (flip sample e) a) e)
+keepLatest a = poll \e -> EClass.keepLatest (sample_ (map (flip sample e) a) e)
 
 fix :: forall event a. IsEvent event => (APoll event a -> APoll event a) -> APoll event a
-fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> Event.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
+fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> EClass.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
 
 once :: forall event a. IsEvent event => APoll event a -> APoll event a
-once a = poll \e -> Event.once (sample a e)
+once a = poll \e -> EClass.once (sample a e)
 
 instance (IsEvent event, Plus event) => IsEvent (APoll event) where
   sampleOnRight = sampleOnRight
@@ -407,3 +413,36 @@ instance (IsEvent event, Plus event) => IsEvent (APoll event) where
   keepLatest = keepLatest
   fix = fix
   once = once
+
+type PollIO a = { poll :: Poll a, push :: a -> Effect Unit }
+type PurePollIO a = { poll :: Poll a, push :: a -> ST Global Unit }
+
+create
+  :: forall a
+   . ST Global (PollIO a)
+create = do
+  { event, push } <- Event.create
+  pure { poll: sham event, push }
+
+createPure
+  :: forall a
+   . ST Global (PurePollIO a)
+createPure = do
+  { event, push } <- Event.createPure
+  pure { poll: sham event, push }
+
+mailbox
+  :: forall a b
+   . Ord a
+  => ST Global { push :: { address :: a, payload :: b } -> Effect Unit, poll :: a -> Poll b }
+mailbox = do
+  { push, event } <- Event.mailbox
+  pure { poll: map sham event, push }
+
+memoize
+  :: forall a 
+   . Event a
+   -> ST Global { unsubscribe :: ST Global Unit, poll :: Poll a }
+memoize a = do
+  {event, unsubscribe } <- Event.memoize a
+  pure { poll: sham event, unsubscribe }
