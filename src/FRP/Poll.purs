@@ -1,6 +1,7 @@
 module FRP.Poll
   ( APoll
   , Poll
+  , sham
   , animate
   , poll
   , derivative
@@ -27,21 +28,25 @@ module FRP.Poll
 
 import Prelude
 
-import Control.Alt (alt)
+import Control.Alt (class Alt, alt)
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Internal as STRef
-import Data.Filterable (class Filterable, compact)
+import Control.Plus (class Plus, empty)
+import Control.Semigroupoid (composeFlipped)
+import Data.Compactable (separateDefault)
+import Data.Either (Either, either)
+import Data.Filterable as Filterable
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(Tuple))
+import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, fix, fold, keepLatest, makeEvent, sampleOnRight, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, fold, makeEvent, subscribe, withLast)
 import FRP.Event.AnimationFrame (animationFrame)
-import FRP.Event.Class (once)
+import FRP.Event.Class as Event
 
 -- | `APoll` is the more general type of `Poll`, which is parameterized
 -- | over some underlying `event` type.
@@ -51,7 +56,8 @@ import FRP.Event.Class (once)
 -- | `Semantic` module.
 newtype APoll event a = APoll (forall b. event (a -> b) -> event b)
 
--- | A `Poll` acts like a continuous function of time.
+-- | A `Poll` acts like a survey or poll. We get a series of questions in time
+-- | of form `a -> b`, and we respond with `b`.
 -- |
 -- | We can construct a sample a `Poll` from some `Event`, combine `Poll`s
 -- | using `Applicative`, and sample a final `Poll` on some other `Event`.
@@ -96,13 +102,23 @@ poll = APoll
 -- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value.
 step :: forall event a. IsEvent event => a -> event a -> APoll event a
-step a e = APoll (\e0 -> sampleOnRight ((once e0 $> a) `alt` e) e0)
+step a e = APoll (\e0 -> Event.sampleOnRight ((Event.once e0 $> a) `alt` e) e0)
 
 -- | Create a `Poll` which is updated when an `Event` fires, by providing
 -- | an initial value and a function to combine the current value with a new event
 -- | to create a new value.
 unfold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> APoll event b
 unfold f a e = step a (fold f a e)
+
+instance Alt event => Alt (APoll event) where
+  alt (APoll a) (APoll b) = APoll \e -> a e `alt` b e
+
+instance Plus event => Plus (APoll event) where
+  empty = APoll \_ -> empty
+
+-- | A poll where the answers are rigged by the nefarious `Event a`
+sham :: forall event. IsEvent event => event ~> APoll event
+sham i = poll \e -> Event.keepLatest (map (\f -> f <$> i) e)
 
 -- | Sample a `Poll` on some `Event`.
 sample :: forall event a b. APoll event a -> event (a -> b) -> event b
@@ -119,14 +135,14 @@ sample_ = sampleBy const
 -- | Switch `Poll`s based on an `Event`.
 switcher :: forall event a. IsEvent event => APoll event a -> event (APoll event a) -> APoll event a
 switcher b0 e = poll \s ->
-  keepLatest ((once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
+  Event.keepLatest ((Event.once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Poll` on some `Event` by providing a predicate function.
-gateBy :: forall event p a. Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
-gateBy f ps xs = compact (sampleBy (\p x -> if f p x then Just x else Nothing) ps xs)
+gateBy :: forall event p a. Filterable.Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
+gateBy f ps xs = Filterable.compact (sampleBy (\p x -> if f p x then Just x else Nothing) ps xs)
 
 -- | Filter an `Event` by the boolean value of a `Poll`.
-gate :: forall event a. Filterable event => APoll event Boolean -> event a -> event a
+gate :: forall event a. Filterable.Filterable event => APoll event Boolean -> event a -> event a
 gate = gateBy const
 
 -- | Integrate with respect to some measure of time.
@@ -155,7 +171,7 @@ integral g initial t b =
       y = withLast (sampleBy Tuple t x)
       z = fold approx initial y
     in
-      sampleOnRight z e
+      Event.sampleOnRight z e
   where
   approx s { last: Nothing } = s
   approx s { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = s + g (\f -> f (a0 + a1) * (t1 - t0) / two)
@@ -202,7 +218,7 @@ derivative g t b =
       y = withLast (sampleBy Tuple t x)
       z = map approx y
     in
-      sampleOnRight z e
+      Event.sampleOnRight z e
   where
   approx { last: Nothing } = zero
   approx { now: Tuple t1 a1, last: Just (Tuple t0 a0) } = g (\f -> f (a1 - a0) / (t1 - t0))
@@ -224,8 +240,8 @@ derivative' = derivative (_ $ identity)
 fixB :: forall event a. IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
 fixB a f =
   poll \s ->
-    sampleOnRight
-      ( fix \event ->
+    Event.sampleOnRight
+      ( Event.fix \event ->
           let
             b = f (step a event)
           in
@@ -341,3 +357,53 @@ refToPoll r = do
 effectToPoll :: Effect ~> Poll
 effectToPoll ee = do
   poll \e -> makeEvent \k -> subscribe e \f -> ee >>= k <<< f
+
+filterMap
+  :: forall event a b
+   . Filterable.Compactable event
+  => Functor event
+  => (a -> Maybe b)
+  -> APoll event a
+  -> APoll event b
+filterMap f b = poll \e -> Filterable.compact
+  $ sampleBy (\a ff -> map ff $ f a) b e
+
+compact :: forall event a. Filterable.Compactable event => Functor event => APoll event (Maybe a) -> APoll event a
+compact = filterMap identity
+
+partitionMap :: forall event a b c. Filterable.Compactable event => Functor event => (a -> Either b c) -> APoll event a -> { left :: APoll event b, right :: APoll event c }
+partitionMap f b = { left: filterMap (either Just (const Nothing)) fb, right: filterMap (either (const Nothing) Just) fb }
+  where
+  fb = f <$> b
+
+instance (Functor event, Filterable.Compactable event) => Filterable.Compactable (APoll event) where
+  compact = compact
+  separate = separateDefault
+
+instance (Functor event, Filterable.Compactable event) => Filterable.Filterable (APoll event) where
+  filterMap = filterMap
+  filter = Filterable.filterDefault
+  partitionMap = partitionMap
+  partition = Filterable.partitionDefault
+
+sampleOnRight :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
+sampleOnRight a b = poll \e -> Event.sampleOnRight (sample_ a e) (sampleBy composeFlipped b e)
+
+sampleOnLeft :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
+sampleOnLeft a b = poll \e -> Event.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
+
+keepLatest :: forall event a. IsEvent event => APoll event (APoll event a) -> APoll event a
+keepLatest a = poll \e -> Event.keepLatest (sample_ (map (flip sample e) a) e)
+
+fix :: forall event a. IsEvent event => (APoll event a -> APoll event a) -> APoll event a
+fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> Event.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
+
+once :: forall event a. IsEvent event => APoll event a -> APoll event a
+once a = poll \e -> Event.once (sample a e)
+
+instance (IsEvent event, Plus event) => IsEvent (APoll event) where
+  sampleOnRight = sampleOnRight
+  sampleOnLeft = sampleOnLeft
+  keepLatest = keepLatest
+  fix = fix
+  once = once
