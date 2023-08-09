@@ -6,6 +6,7 @@ module FRP.Event
   , PureEventIO'
   , Subscriber(..)
   , memoize
+  , mailboxed
   , makeEventE
   , mailbox'
   , mailbox
@@ -122,7 +123,7 @@ instance altEvent :: Alt Event where
 -- | as `oneOf`, but it is faster and less prone to stack explosions.
 merge :: forall f a. Foldable f => f (Event a) → Event a
 merge f = Event $ mkSTFn2 \tf k -> do
-  a <-  STArray.new
+  a <- STArray.new
   f # M.foldMap \(Event i) -> do
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
@@ -220,14 +221,14 @@ biSampleOn (Event e1) (Event e2) =
     latest2 <- STRef.new Nothing
     c1 <-
       runSTFn2 e1 tf $ mkEffectFn1 \a -> do
-          void $ liftST $ STRef.write (Just a) latest1
-          res <- liftST $ STRef.read latest2
-          for_ res (\f -> runEffectFn1 k (f a))
+        void $ liftST $ STRef.write (Just a) latest1
+        res <- liftST $ STRef.read latest2
+        for_ res (\f -> runEffectFn1 k (f a))
     c2 <-
       runSTFn2 e2 tf $ mkEffectFn1 \f -> do
-          void $ liftST $ STRef.write (Just f) latest2
-          res <- liftST $ STRef.read latest1
-          for_ res (\a -> runEffectFn1 k (f a))
+        void $ liftST $ STRef.write (Just f) latest2
+        res <- liftST $ STRef.read latest1
+        for_ res (\a -> runEffectFn1 k (f a))
     pure do
       c1
       c2
@@ -296,7 +297,7 @@ subscribePure
    . Event a
   -> (a -> ST Global Unit)
   -> ST Global (ST Global Unit)
-subscribePure (Event e) k =  runSTFn2 e true (mkEffectFn1 (stPusherToEffectPusher k))
+subscribePure (Event e) k = runSTFn2 e true (mkEffectFn1 (stPusherToEffectPusher k))
   where
 
   stPusherToEffectPusher :: forall aa. (aa -> ST Global Unit) -> aa -> Effect Unit
@@ -356,7 +357,7 @@ makeLemmingEvent e = Event $ mkSTFn2 \tf k -> do
     stEventToEvent = unsafeCoerce
 
     o :: forall aa. Event aa -> (aa -> ST Global Unit) -> ST Global (ST Global Unit)
-    o (Event ev) kx =  runSTFn2 ev tf (mkEffectFn1 (stPusherToEffectPusher kx))
+    o (Event ev) kx = runSTFn2 ev tf (mkEffectFn1 (stPusherToEffectPusher kx))
 
   stEventToEvent (e o) (\a -> runEffectFn1 k a)
 
@@ -376,7 +377,7 @@ makeLemmingEventO e = Event $ mkSTFn2 \tf k -> do
     stEventToEvent = unsafeCoerce
 
     o :: forall aa. STFn2 (Event aa) (STFn1 aa Global Unit) Global (ST Global Unit)
-    o = mkSTFn2 \(Event ev) kx ->  runSTFn2 ev tf (stPusherToEffectPusher kx)
+    o = mkSTFn2 \(Event ev) kx -> runSTFn2 ev tf (stPusherToEffectPusher kx)
 
   runSTFn2 (stEventToEvent e) (Subscriber o) k
 
@@ -403,6 +404,16 @@ foreign import deleteObjHack :: forall a. STFn2 Int (ObjHack a) Global Unit
 memoize :: forall a r. Event a -> (Event a -> r) -> Event r
 memoize e f = makeEvent \k -> do
   { event, push } <- create
+  done <- STRef.new false
+  subscribe e \a -> do
+    o <- liftST $ STRef.read done
+    unless o $ k (f event)
+    void $ liftST $ STRef.write true done
+    push a
+
+mailboxed :: forall r a b. Ord a => Event { address :: a, payload :: b } -> ((a -> Event b) -> r) -> Event r
+mailboxed e f = makeEvent \k -> do
+  { event, push } <- mailbox
   done <- STRef.new false
   subscribe e \a -> do
     o <- liftST $ STRef.read done
@@ -519,7 +530,6 @@ mailbox' = do
           Nothing -> pure unit
           Just arr -> runEffectFn2 fastForeachE arr $ mkEffectFn1 \i -> runEffectFn1 i payload
     }
-
 
 -- | Makes an event hot, meaning that it will start firing on left-bind. This means that `pure` should never be used with `hot` as it will be lost. Use this for loops, for example.
 hot
