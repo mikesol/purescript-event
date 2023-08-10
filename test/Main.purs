@@ -2,32 +2,35 @@ module Test.Main where
 
 import Prelude
 
-import Control.Alt ((<|>))
+import Control.Alt (class Alt, (<|>))
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
+import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
-import Control.Plus (empty)
+import Control.Plus (class Plus, empty)
 import Data.Array (length, replicate)
 import Data.Array as Array
-import Data.Filterable (filter)
+import Data.Filterable (class Filterable, filter)
 import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
+import Debug (spy)
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), delay, launchAff_)
-import Effect.Class (liftEffect)
+import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Poll (poll, derivative', fixB, gate, integral', sample, sample_, stRefToPoll)
-import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoize, merge, subscribe)
+import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
-import Test.Spec (describe, it)
+import FRP.Poll (poll, derivative', fixB, gate, integral', sample, sample_, stRefToPoll)
+import FRP.Poll as Poll
+import Test.Spec (SpecT, describe, it, itOnly)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
@@ -39,62 +42,295 @@ modify__ a b = void $ STRef.modify a b
 fresh :: forall a r. a -> ST r (STRef r a)
 fresh = STRef.new
 
+-- Because of limitations in how polymorphism works in PureScript,
+-- every test needs to have the same type for the pusher and output.
+-- For most tests that's `Int` and `Int`, but for a couple, the input type
+-- is `Unit` and the output type is somethign different. So we
+-- need new suites for those.
+suite1 name { setup, prime, create, toEvent, underTest } = do
+  describe name do
+    it "should do simple stuff" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      u1 <- liftST $ subscribe (toEvent (underTest testing) ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push 0
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 0 ]
+      u2 <- liftST $ subscribe (toEvent (underTest testing) ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons (negate i)) r
+      v' <- liftST $ STRef.read r
+      v' `shouldEqual` [ 0 ]
+      prime ep
+      testing.push 1
+      v'' <- liftST $ STRef.read r
+      v'' `shouldEqual` [ -1, 1, 0 ]
+      liftST (u1 *> u2)
+    it "should do a lot more complex addition" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let
+        testAddition = do
+          let
+            add1 = map (add 1) (underTest testing)
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+          add1 <|> add4
+      u <- liftST $ subscribe (toEvent testAddition ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push 0
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 10, 1 ]
+      liftST u
+    it "should handle alt" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let
+        testAlt = do
+          let
+            add1 = (map (add 1) (underTest testing))
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+            altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+          add1 <|> altr
+      u <- liftST $ subscribe (toEvent testAlt ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push 0
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 10, 3, 1, 1 ]
+      liftST u
+    it "should handle filter 1" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let
+        filtered = do
+          let
+            add1 = map (add 1) (underTest testing)
+            add2 = map (add 2) add1
+            add3 = map (add 3) add2
+            add4 = map (add 4) add3
+            altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+            fm = (filter (_ < 5) altr)
+          add1 <|> fm
+      u <- liftST $ subscribe (toEvent filtered ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push 0
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 3, 1, 1 ]
+      liftST u
+    it "should handle filter 2" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let add1 = (map (add 1) (underTest testing))
+      let add2 = map (add 2) add1
+      let add3 = map (add 3) add2
+      let add4 = map (add 4) add3
+      let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
+      let fm = (filter (_ > 5) altr)
+      u <- liftST $ subscribe (toEvent (add1 <|> fm) ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push 0
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 10, 1 ]
+      liftST u
+  it "should keep itself when keepLatest is used" $ liftEffect do
+    r <- liftST $ STRef.new []
+    ep <- liftST setup
+    testing <- liftST $ create
+    let tested = underTest testing
+    u1 <- liftST $ subscribe (toEvent (keepLatest (tested $> tested)) ep) \i ->
+      liftST $ void $ STRef.modify (Array.cons i) r
+    prime ep
+    testing.push 0
+    testing.push 1
+    testing.push 42
+    v <- liftST $ STRef.read r
+    v `shouldEqual` [ 42, 1, 0 ]
+    liftST u1
+
+suite2 name { setup, prime, create, toEvent, underTest } = do
+  describe name do
+    it "should handle fold 1" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let
+        event' = do
+          let foldy = (fold (\b _ -> b + 1) 0 (underTest testing))
+          let add2 = map (add 2) foldy
+          let add3 = map (add 3) add2
+          let add4 = map (add 4) add3
+          let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+          let fm = (filter (_ > 5) altr)
+          foldy <|> fm
+      u <- liftST $ subscribe (toEvent event' ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing.push unit
+      liftST (STRef.read r) >>= shouldEqual [ 10, 1 ]
+      liftST $ void $ STRef.write [] r
+      testing.push unit
+      liftST (STRef.read r) >>= shouldEqual [ 11, 2 ]
+      liftST $ void $ STRef.write [] r
+      testing.push unit
+      liftST (STRef.read r) >>= shouldEqual [ 12, 3 ]
+      liftST u
+
+suite3 name { setup, prime, create, toEvent, underTest } = do
+  describe name do
+    it "should handle fold 2" do
+      liftEffect do
+        r <- liftST $ STRef.new []
+        ep <- liftST setup
+        testing <- liftST create
+        let
+          event' = do
+            let add1 = map (add 1) (underTest testing)
+            let add2 = map (add 2) add1
+            let add3 = map (add 3) add2
+            let foldy = fold (\b a -> a + b) 0 add3
+            let add4 = map (add 4) add3
+            let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
+            sampleOnRight add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
+        u <- liftST $ subscribe (toEvent event' ep) \i ->
+          liftST $ void $ STRef.modify (Array.cons i) r
+        prime ep
+        testing.push 0
+        liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
+        liftST $ void $ STRef.write [] r
+        testing.push 0
+        liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 12 ]
+        liftST $ void $ STRef.write [] r
+        testing.push 0
+        liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
+        liftST u
+
+suite4 name { desc, setup, prime, create, toEvent, underTest, res } = do
+  describe name do
+    it desc $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing <- liftST create
+      let
+        e e' = Tuple <$> (e' $> 1 <|> e' $> 2) <*> (e' $> 3 <|> e' $> 4)
+      u <- liftST $ subscribe (toEvent (e (underTest testing)) ep) \i ->
+        liftST $ void $ STRef.modify (flip Array.snoc i) r
+      prime ep
+      testing.push unit
+      liftST (STRef.read r) >>= \y -> y `shouldEqual` res
+      liftST u
+
+suite5 name { setup, prime, create, toEvent, underTest } = do
+  describe name do
+    it "respects both sides of application" $ liftEffect do
+      testing <- liftST create
+      ep <- liftST setup
+      rf0 <- liftST $ STRef.new ""
+      rf1 <- liftST $ STRef.new ""
+      let tested = underTest testing
+      u1 <- liftST $ Event.subscribe (toEvent ((append <$> (once tested $> "a")) <*> tested) ep) (liftST <<< void <<< flip STRef.write rf0)
+      u2 <- liftST $ Event.subscribe (toEvent ((append <$> tested) <*> (once tested $> "b")) ep) (liftST <<< void <<< flip STRef.write rf1)
+      prime ep
+      testing.push "c"
+      rf0' <- liftST $ STRef.read rf0
+      rf1' <- liftST $ STRef.read rf1
+      rf0' `shouldEqual` "ac"
+      rf1' `shouldEqual` "cb"
+      liftST $ u1 *> u2
+
 main :: Effect Unit
 main = do
   launchAff_
     $ runSpec [ consoleReporter ] do
-        describe "Event" do
-          it "should do simple stuff" $ liftEffect do
-            r <- liftST $ STRef.new []
-            { push, event } <- liftST $ Event.create
-            u1 <- liftST $ subscribe (event) \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            push 0
-            v <- liftST $ STRef.read r
-            v `shouldEqual` [ 0 ]
-            u2 <- liftST $ subscribe (event) \i ->
-              liftST $ void $ STRef.modify (Array.cons (negate i)) r
-            v' <- liftST $ STRef.read r
-            v' `shouldEqual` [ 0 ]
-            push 1
-            v'' <- liftST $ STRef.read r
-            v'' `shouldEqual` [ -1, 1, 0 ]
-            liftST (u1 *> u2)
-          it "should do a lot more complex addition" $ liftEffect do
-            r <- liftST $ STRef.new []
-            ep <- liftST $ Event.create
-            let
-              event = do
-                let
-                  add1 = map (add 1) ep.event
-                  add2 = map (add 2) add1
-                  add3 = map (add 3) add2
-                  add4 = map (add 4) add3
-                add1 <|> add4
-            u <- liftST $ subscribe event \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            ep.push 0
-            v <- liftST $ STRef.read r
-            v `shouldEqual` [ 10, 1 ]
-            liftST u
-          it "should handle alt" $ liftEffect do
-            r <- liftST $ STRef.new []
-            ep <- liftST $ Event.create
-            let
-              event = do
-                let
-                  add1 = (map (add 1) ep.event)
-                  add2 = map (add 2) add1
-                  add3 = map (add 3) add2
-                  add4 = map (add 4) add3
-                  altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                add1 <|> altr
-            u <- liftST $ subscribe event \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            ep.push 0
-            v <- liftST $ STRef.read r
-            v `shouldEqual` [ 10, 3, 1, 1 ]
-            liftST u
+        suite1 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
+        suite1 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+        suite2 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
+        suite2 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+
+        suite3 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
+        suite3 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+        suite4 "Poll"
+          { setup: Event.create
+          , desc: "should distribute apply to all behaviors"
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          , res: [ (Tuple 1 3), (Tuple 2 3), (Tuple 1 4), (Tuple 2 4) ]
+          }
+        suite4 "Event"
+          { setup: pure unit
+          , desc: "should ignore left pushes on initial event but respond to both right pushes"
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          , res: [ (Tuple 2 3), (Tuple 2 4) ]
+          }
+        suite5 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+        suite5 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
+
+        describe "Unique to Event" do
           -- this test shows how a poll based framework could be used
           -- to emit html, where the webpage is a poll and it is
           -- rendered based on an initial event
@@ -205,99 +441,6 @@ main = do
               , false
               ]
             liftST u
-          it "should handle filter 1" $ liftEffect do
-            r <- liftST $ STRef.new []
-            ep <- liftST $ Event.create
-            let
-              event = do
-                let
-                  add1 = map (add 1) ep.event
-                  add2 = map (add 2) add1
-                  add3 = map (add 3) add2
-                  add4 = map (add 4) add3
-                  altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-                  fm = (filter (_ < 5) altr)
-                add1 <|> fm
-            u <- liftST $ subscribe event \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            ep.push 0
-            v <- liftST $ STRef.read r
-            v `shouldEqual` [ 3, 1, 1 ]
-            liftST u
-          it "should handle filter 2" $ liftEffect do
-            r <- liftST $ STRef.new []
-            ep <- liftST $ Event.create
-            let add1 = (map (add 1) ep.event)
-            let add2 = map (add 2) add1
-            let add3 = map (add 3) add2
-            let add4 = map (add 4) add3
-            let altr = add1 <|> add2 <|> empty <|> add4 <|> empty
-            let fm = (filter (_ > 5) altr)
-            u <- liftST $ subscribe (add1 <|> fm) \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            ep.push 0
-            v <- liftST $ STRef.read r
-            v `shouldEqual` [ 10, 1 ]
-            liftST u
-          it "should handle fold 0" $ liftEffect do
-            r <- liftST $ STRef.new []
-            { push, event } <- liftST $ Event.create
-            let
-              event' = do
-                let foldy = (fold (\b _ -> b + 1) 0 event)
-                let add2 = map (add 2) foldy
-                let add3 = map (add 3) add2
-                let add4 = map (add 4) add3
-                let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                let fm = (filter (_ > 5) altr)
-                foldy <|> fm
-            u <- liftST $ subscribe event' \i ->
-              liftST $ void $ STRef.modify (Array.cons i) r
-            push unit
-            liftST (STRef.read r) >>= shouldEqual [ 10, 1 ]
-            liftST $ void $ STRef.write [] r
-            push unit
-            liftST (STRef.read r) >>= shouldEqual [ 11, 2 ]
-            liftST $ void $ STRef.write [] r
-            push unit
-            liftST (STRef.read r) >>= shouldEqual [ 12, 3 ]
-            liftST u
-          it "should handle fold 1" do
-            liftEffect do
-              r <- liftST $ STRef.new []
-              { push, event } <- liftST $ Event.create
-              let
-                event' = do
-                  let add1 = map (add 1) event
-                  let add2 = map (add 2) add1
-                  let add3 = map (add 3) add2
-                  let foldy = fold (\b a -> a + b) 0 add3
-                  let add4 = map (add 4) add3
-                  let altr = foldy <|> add2 <|> empty <|> add4 <|> empty
-                  sampleOnRight add2 (map (\a b -> b /\ a) (filter (_ > 5) altr))
-              u <- liftST $ subscribe event' \i ->
-                liftST $ void $ STRef.modify (Array.cons i) r
-              push 0
-              liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 6 ]
-              liftST $ void $ STRef.write [] r
-              push 0
-              liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 12 ]
-              liftST $ void $ STRef.write [] r
-              push 0
-              liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
-              liftST u
-          it "should ignore left pushes on initial event but respond to both right pushes" $ liftEffect do
-            let
-
-              e :: forall a. Event a -> Event (Tuple Int Int)
-              e e' = Tuple <$> (e' $> 1 <|> e' $> 2) <*> (e' $> 3 <|> e' $> 4)
-            r <- liftST $ STRef.new []
-            ep <- liftST $ Event.create
-            u <- liftST $ subscribe (e ep.event) \i ->
-              liftST $ void $ STRef.modify (flip Array.snoc i) r
-            ep.push unit
-            liftST (STRef.read r) >>= \y -> y `shouldEqual` [ Tuple 2 3, Tuple 2 4 ]
-            liftST u
           describe "Performance" do
             it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
               starts <- getTime <$> now
@@ -340,16 +483,6 @@ main = do
               liftST u
               ends <- getTime <$> now
               write ("Duration: " <> show (ends - starts) <> "\n")
-          describe "Keep latest" do
-            it "should emit when an event keeps itself" $ liftEffect do
-              r <- liftST $ STRef.new []
-              { push, event } <- liftST $ Event.create
-              u1 <- liftST $ subscribe (keepLatest (event $> event)) \i ->
-                liftST $ void $ STRef.modify (Array.cons i) r
-              push 0
-              v <- liftST $ STRef.read r
-              v `shouldEqual` [ 0 ]
-              liftST u1
           describe "Memoization" do
             it "should not memoize" $ liftEffect do
               { push, event } <- liftST Event.create
@@ -375,7 +508,7 @@ main = do
                     void $ liftST $ STRef.modify (add 1) count
                     pure $ v
                 mapped = keepLatest $
-                  memoize (identity (map fn event)) \e -> Event.makeEvent \k -> do
+                  memoized (identity (map fn event)) \e -> Event.makeEvent \k -> do
                     u1 <- Event.subscribe e (\_ -> pure unit)
                     u2 <- Event.subscribe e k
                     pure (u1 *> u2)
@@ -392,7 +525,7 @@ main = do
                     void $ liftST $ STRef.modify (add 1) count
                     pure $ v
                 mapped = keepLatest
-                  $ memoize event
+                  $ memoized event
                   $ (lcmap (identity <<< map fn)) \e ->
                       Event.makeEvent \k -> do
                         u1 <- liftST $ Event.subscribe e (\_ -> pure unit)

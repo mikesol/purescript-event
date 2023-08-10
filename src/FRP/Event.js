@@ -24,16 +24,16 @@ export const fastForeachE = (as, f) => {
 /////////////////////////
 
 export const objHack = () => {
-  return { r: false, q: [], m: [new Map()] };
+  return { r: false, q: [], m: [{}] };
 };
 
 export const insertObjHack = (k, v, o) => {
-  o.m[o.m.length - 1].set(k, v);
+  o.m[o.m.length - 1][k] = v;
 };
 
 export const deleteObjHack = (k, o) => {
   for (const m of o.m) {
-    if (m.delete(k)) {
+    if (delete m[k]) {
       return true;
     }
   }
@@ -46,16 +46,18 @@ export const fastForeachOhE = (o, f) => {
     return;
   }
   o.r = true;
-  const M = new Map();
+  const M = {};
   const run = (i) => {
-    o.m.push(new Map());
-    o.m[i].forEach((v, k) => {
+    o.m.push({});
+    for (const kv of Object.entries(o.m[i]))  {
+      const k = kv[0];
+      const v = kv[1];
       f(v);
-      if (o.m[i + 1].size) run(i + 1);
-      o.m[i + 1].clear();
+      if (Object.keys(o.m[i + 1]).length) run(i + 1);
+      o.m[i + 1] = {};
       o.m.length = i + 1 + 1;
-      M.set(k, v);
-    });
+      M[k] = v;
+    };
   };
   run(0);
   o.m.length = 0;

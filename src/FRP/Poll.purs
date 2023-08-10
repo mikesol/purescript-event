@@ -1,6 +1,7 @@
 module FRP.Poll
   ( APoll
   , Poll
+  , class Pollable
   , sham
   , animate
   , poll
@@ -40,8 +41,8 @@ import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Control.Plus (class Plus, empty)
 import Control.Semigroupoid (composeFlipped)
-import Data.Compactable (separateDefault)
 import Data.Either (Either, either)
+import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
@@ -126,29 +127,34 @@ instance Plus event => Plus (APoll event) where
 sham :: forall event. IsEvent event => event ~> APoll event
 sham i = poll \e -> EClass.keepLatest (map (\f -> f <$> i) e)
 
--- | Sample a `Poll` on some `Event`.
-sample :: forall event a b. APoll event a -> event (a -> b) -> event b
-sample (APoll b) e = b e
+class Pollable event pollable | pollable -> event where
+  -- | Sample a `Poll` on some `Event`.
+  sample :: forall a b. APoll event a -> pollable (a -> b) -> pollable b
+
+instance (IsEvent event, Pollable event event) => Pollable event (APoll event) where
+  sample a ab = poll \e -> sample (sampleOnRight a ab) e
+else instance IsEvent event => Pollable event event where
+  sample (APoll a) ab = a ab
 
 -- | Sample a `Poll` on some `Event` by providing a combining function.
-sampleBy :: forall event a b c. Functor event => (a -> b -> c) -> APoll event a -> event b -> event c
+sampleBy :: forall event pollable a b c. Pollable event pollable => Functor event => Functor pollable => (a -> b -> c) -> APoll event a -> pollable b -> pollable c
 sampleBy f b e = sample (map f b) (map applyFlipped e)
 
 -- | Sample a `Poll` on some `Event`, discarding the event's values.
-sample_ :: forall event a b. Functor event => APoll event a -> event b -> event a
+sample_ :: forall event pollable a b. Pollable event pollable => Functor event => Functor pollable => APoll event a -> pollable b -> pollable a
 sample_ = sampleBy const
 
 -- | Switch `Poll`s based on an `Event`.
-switcher :: forall event a. IsEvent event => APoll event a -> event (APoll event a) -> APoll event a
+switcher :: forall event a. Pollable event event => IsEvent event => APoll event a -> event (APoll event a) -> APoll event a
 switcher b0 e = poll \s ->
   EClass.keepLatest ((EClass.once s $> (sample b0 s)) `alt` map (\b -> sample b s) e)
 
 -- | Sample a `Poll` on some `Event` by providing a predicate function.
-gateBy :: forall event p a. Filterable.Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
+gateBy :: forall event p a. Pollable event event => Filterable.Filterable event => (p -> a -> Boolean) -> APoll event p -> event a -> event a
 gateBy f ps xs = Filterable.compact (sampleBy (\p x -> if f p x then Just x else Nothing) ps xs)
 
 -- | Filter an `Event` by the boolean value of a `Poll`.
-gate :: forall event a. Filterable.Filterable event => APoll event Boolean -> event a -> event a
+gate :: forall event a. Pollable event event => Filterable.Filterable event => APoll event Boolean -> event a -> event a
 gate = gateBy const
 
 -- | Integrate with respect to some measure of time.
@@ -163,6 +169,7 @@ gate = gateBy const
 integral
   :: forall event a t
    . IsEvent event
+  => Pollable event event
   => Field t
   => Semiring a
   => (((a -> t) -> t) -> a)
@@ -192,6 +199,7 @@ integral g initial t b =
 integral'
   :: forall event t
    . IsEvent event
+  => Pollable event event
   => Field t
   => t
   -> APoll event t
@@ -211,6 +219,7 @@ integral' = integral (_ $ identity)
 derivative
   :: forall event a t
    . IsEvent event
+  => Pollable event event
   => Field t
   => Ring a
   => (((a -> t) -> t) -> a)
@@ -236,6 +245,7 @@ derivative g t b =
 derivative'
   :: forall event t
    . IsEvent event
+  => Pollable event event
   => Field t
   => APoll event t
   -> APoll event t
@@ -243,7 +253,7 @@ derivative'
 derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
-fixB :: forall event a. IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
+fixB :: forall event a. Pollable event event => IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
 fixB a f =
   poll \s ->
     EClass.sampleOnRight
@@ -367,6 +377,7 @@ effectToPoll ee = do
 filterMap
   :: forall event a b
    . Filterable.Compactable event
+  => Pollable event event
   => Functor event
   => (a -> Maybe b)
   -> APoll event a
@@ -374,40 +385,41 @@ filterMap
 filterMap f b = poll \e -> Filterable.compact
   $ sampleBy (\a ff -> map ff $ f a) b e
 
-compact :: forall event a. Filterable.Compactable event => Functor event => APoll event (Maybe a) -> APoll event a
-compact = filterMap identity
-
-partitionMap :: forall event a b c. Filterable.Compactable event => Functor event => (a -> Either b c) -> APoll event a -> { left :: APoll event b, right :: APoll event c }
+partitionMap :: forall event a b c. Pollable event event => Filterable.Compactable event => Functor event => (a -> Either b c) -> APoll event a -> { left :: APoll event b, right :: APoll event c }
 partitionMap f b = { left: filterMap (either Just (const Nothing)) fb, right: filterMap (either (const Nothing) Just) fb }
   where
   fb = f <$> b
 
-instance (Functor event, Filterable.Compactable event) => Filterable.Compactable (APoll event) where
-  compact = compact
-  separate = separateDefault
+instance (Functor event, Filterable.Compactable event, Pollable event event) => Filterable.Compactable (APoll event) where
+  compact = filterMap identity
+  separate = partitionMap identity
 
-instance (Functor event, Filterable.Compactable event) => Filterable.Filterable (APoll event) where
+instance (Functor event, Filterable.Compactable event, Pollable event event) => Filterable.Filterable (APoll event) where
   filterMap = filterMap
-  filter = Filterable.filterDefault
+  filter = filterMap <<< maybeBool
   partitionMap = partitionMap
-  partition = Filterable.partitionDefault
+  partition p xs = do
+    let o = partitionMap (eitherBool p) xs
+    { no: o.left, yes: o.right }
 
-sampleOnRight :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
+--?getRidOfDoulbeSampleWithUncurry
+sampleOnRight :: forall event a b. Pollable event event => IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
 sampleOnRight a b = poll \e -> EClass.sampleOnRight (sample_ a e) (sampleBy composeFlipped b e)
 
-sampleOnLeft :: forall event a b. IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
+sampleOnLeft :: forall event a b. Pollable event event => IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
 sampleOnLeft a b = poll \e -> EClass.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
 
-keepLatest :: forall event a. IsEvent event => APoll event (APoll event a) -> APoll event a
-keepLatest a = poll \e -> EClass.keepLatest (sample_ (map (flip sample e) a) e)
+-- Poll (Poll a), Event (a -> b) ---> Event (Tuple (Poll a) (a -> b)) ---> Event (Poll b)
+keepLatest :: forall event a. Pollable event event => IsEvent event => APoll event (APoll event a) -> APoll event a
+keepLatest a = poll \e -> Event.fix \ee -> Event.keepLatest (map (flip sample_ ee) (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e)))
 
-fix :: forall event a. IsEvent event => (APoll event a -> APoll event a) -> APoll event a
+fix :: forall event a. Pollable event event => IsEvent event => (APoll event a -> APoll event a) -> APoll event a
 fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> EClass.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
 
-once :: forall event a. IsEvent event => APoll event a -> APoll event a
+once :: forall event a. Pollable event event => IsEvent event => APoll event a -> APoll event a
 once a = poll \e -> EClass.once (sample a e)
 
-instance (IsEvent event, Plus event) => IsEvent (APoll event) where
+instance (IsEvent event, Plus event, Pollable event event) => IsEvent (APoll event) where
   sampleOnRight = sampleOnRight
   sampleOnLeft = sampleOnLeft
   keepLatest = keepLatest
@@ -440,9 +452,9 @@ mailbox = do
   pure { poll: map sham event, push }
 
 memoize
-  :: forall a 
+  :: forall a
    . Event a
-   -> ST Global { unsubscribe :: ST Global Unit, poll :: Poll a }
+  -> ST Global { unsubscribe :: ST Global Unit, poll :: Poll a }
 memoize a = do
-  {event, unsubscribe } <- Event.memoize a
+  { event, unsubscribe } <- Event.memoize a
   pure { poll: sham event, unsubscribe }
