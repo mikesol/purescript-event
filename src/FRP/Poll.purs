@@ -6,7 +6,6 @@ module FRP.Poll
   , sham
   , animate
   , poll
-  , keepLatestHack
   , derivative
   , derivative'
   , effectToPoll
@@ -48,11 +47,11 @@ import Data.Either (Either, either)
 import Data.Exists (mkExists, runExists)
 import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
+import Data.Foldable (oneOf)
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
-import Debug (spy)
 import Effect (Effect)
 import Effect.Ref as Ref
 import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
@@ -416,13 +415,6 @@ sampleOnRight a b = poll \e -> EClass.sampleOnRight (sample_ a e) (sampleBy comp
 sampleOnLeft :: forall event a b. Pollable event event => IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
 sampleOnLeft a b = poll \e -> EClass.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
 
--- Poll (Poll a), Event (a -> b) ---> Event (Tuple (Poll a) (a -> b)) ---> Event (Poll b)
-keepLatest :: forall event a. Pollable event event => IsEvent event => APoll event (APoll event a) -> APoll event a
--- keepLatest a = poll \e -> EClass.fix \ee -> EClass.keepLatest (map (flip sample_ ee) (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e)) )
--- keepLatest a = poll \e -> EClass.keepLatest (sample_ (map (flip sample e) a) e)
--- keepLatest a = poll \e -> sample_ (switcher empty (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e))) e
-keepLatest (APoll a) = poll \e -> Event.keepLatest ((map (map \(APoll b) -> b e) a) (e $> identity))
-
 fix :: forall event a. Pollable event event => IsEvent event => (APoll event a -> APoll event a) -> APoll event a
 fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> EClass.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
 
@@ -484,8 +476,17 @@ memoize a = do
       Just ex -> ex # runExists \(UnsafeEventToCompare { eo, kk }) -> do
         s eo kk
 
-keepLatestHack :: forall a. Poll (Poll a) -> Poll a
-keepLatestHack a = APoll \e -> makeLemmingEvent \s k ->
-  s (sample_ a e) \p -> let _ = spy "toplevel works" true in void $ s (sample p e) \i -> do
-    let _ = spy "coming through" i
-    k i
+data KeepLatestOrder event a b = KeepLatestStart (APoll event a) (a -> b) | KeepLatestLast b
+
+keepLatest :: forall event a. Filterable.Filterable event => EClass.IsEvent event => Pollable event event => APoll event (APoll event a) -> APoll event a
+keepLatest a = APoll \e ->
+  Filterable.filterMap
+    ( case _ of
+        KeepLatestLast b -> Just b
+        _ -> Nothing
+    ) $ EClass.fix \ie -> oneOf
+    [ sampleBy KeepLatestStart a e
+    , EClass.keepLatest $ flip Filterable.filterMap ie case _ of
+        KeepLatestStart b ff -> Just (sampleBy (\bb _ -> KeepLatestLast (ff bb)) b (EClass.once ie))
+        _ -> empty
+    ]

@@ -2,13 +2,12 @@ module Test.Main where
 
 import Prelude
 
-import Control.Alt (class Alt, (<|>))
+import Control.Alt ((<|>))
 import Control.Monad.ST (ST)
 import Control.Monad.ST.Class (liftST)
-import Control.Monad.ST.Global (Global)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
-import Control.Plus (class Plus, empty)
+import Control.Plus (empty)
 import Data.Array (length, replicate)
 import Data.Array as Array
 import Data.Filterable (class Filterable, filter)
@@ -18,19 +17,18 @@ import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, sequence)
 import Data.Tuple (Tuple(..))
 import Data.Tuple.Nested ((/\))
-import Debug (spy)
 import Effect (Effect)
 import Effect.Aff (Milliseconds(..), delay, launchAff_)
-import Effect.Class (class MonadEffect, liftEffect)
+import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoized, merge, sampleOnRight, subscribe)
+import FRP.Event (mailbox, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
-import FRP.Poll (derivative', fixB, gate, integral', keepLatestHack, poll, sample, sample_, stRefToPoll)
+import FRP.Poll (derivative', fixB, gate, integral', poll, sample, sample_, stRefToPoll)
 import FRP.Poll as Poll
-import Test.Spec (SpecT, describe, it, itOnly)
+import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
 import Test.Spec.Console (write)
 import Test.Spec.Reporter (consoleReporter)
@@ -47,7 +45,7 @@ fresh = STRef.new
 -- For most tests that's `Int` and `Int`, but for a couple, the input type
 -- is `Unit` and the output type is somethign different. So we
 -- need new suites for those.
-suite1 name { setup, prime, create, toEvent, underTest, kkll } = do
+suite1 name { setup, prime, create, toEvent, underTest } = do
   describe name do
     it "should do simple stuff" $ liftEffect do
       r <- liftST $ STRef.new []
@@ -171,19 +169,19 @@ suite1 name { setup, prime, create, toEvent, underTest, kkll } = do
       v <- liftST $ STRef.read r
       v `shouldEqual` [ 51, 50, 104, 45 ]
       liftST u
-    itOnly "should keepLatest" $ liftEffect do
+    it "should keepLatest" $ liftEffect do
       r <- liftST $ STRef.new []
       ep <- liftST setup
       testing0 <- liftST create
       testing1 <- liftST create
-      let toTest = kkll (underTest testing0 $> underTest testing1)
+      let toTest = keepLatest (underTest testing0 $> underTest testing1)
       u <- liftST $ subscribe (toEvent toTest ep) \i ->
         liftST $ void $ STRef.modify (Array.cons i) r
       prime ep
       testing0.push 42
       testing1.push 3
       testing1.push 4
-      testing0.push 42
+      -- testing0.push 42
       testing1.push 5
       testing1.push 6
       v <- liftST $ STRef.read r
@@ -194,18 +192,12 @@ suite1 name { setup, prime, create, toEvent, underTest, kkll } = do
     ep <- liftST setup
     testing <- liftST $ create
     let tested = underTest testing
-    u1 <- liftST $ subscribe (toEvent (kkll (tested $> tested)) ep) \i -> do
-      --let _ = spy "incoming" true
+    u1 <- liftST $ subscribe (toEvent (keepLatest (tested $> tested)) ep) \i -> do
       liftST $ void $ STRef.modify (Array.cons i) r
-    --let _ = spy "pre prime" {}
     prime ep
-    --let _ = spy "pre push 0" {}
     testing.push 0
-    --let _ = spy "pre push 1" {}
     testing.push 1
-    --let _ = spy "pre push 42" {}
     testing.push 42
-    --let _ = spy "post push 42" {}
     v <- liftST $ STRef.read r
     v `shouldEqual` [ 42, 1, 0 ]
     liftST u1
@@ -310,16 +302,14 @@ main = do
           , create: Poll.create
           , toEvent: \b ep -> sample_ b ep.event
           , underTest: \testing -> testing.poll
-          , kkll: keepLatestHack
           }
-        -- suite1 "Event"
-        --   { setup: pure unit
-        --   , prime: pure
-        --   , create: Event.create
-        --   , toEvent: \e _ -> e
-        --   , underTest: \testing -> testing.event
-        --   , kkll: keepLatest
-        --   }
+        suite1 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
         suite2 "Poll"
           { setup: Event.create
           , prime: \ep -> ep.push unit

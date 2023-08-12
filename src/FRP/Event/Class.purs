@@ -130,3 +130,5 @@ gateBy f sampled sampler = compact $
 -- | Fold over values received from some `Event`, creating a new `Event`.
 fold :: forall event a b. IsEvent event => (b -> a -> b) -> b -> event a -> event b
 fold f b e = fix \i -> sampleOnRight (i <|> (once e $> b)) ((flip f) <$> e)
+
+data OnceTracker a = Initial | Latch a | Stop

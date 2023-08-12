@@ -49,7 +49,6 @@ import Data.Foldable as M
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
-import Debug (spy)
 import Effect (Effect)
 import Effect.Timer (TimeoutId, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
@@ -241,13 +240,8 @@ keepLatest :: forall a. Event (Event a) -> Event a
 keepLatest (Event e) =
   Event $ mkSTFn2 \tf k -> do
     cancelInner <- STRef.new (pure unit)
-    -- let _ = spy "running evt toplevel" true
     cancelOuter <-
       runSTFn2 e tf $ mkEffectFn1 \(Event inner) -> liftST do
-        -- let _ = spy "running evt inner" true
-        -- in rare cases, cancelOuter may itself provoke an emission
-        -- of the outer event, in which case this function would run
-        -- to avoid that, we use a `safeToIgnore` flag
         ci <- STRef.read cancelInner
         ci
         c <- runSTFn2 inner tf k
