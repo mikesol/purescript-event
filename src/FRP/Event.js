@@ -28,10 +28,12 @@ export const objHack = () => {
 };
 
 export const insertObjHack = (k, v, o) => {
+  console.log("CALLED IOH", k);
   o.m[o.m.length - 1][k] = v;
 };
 
 export const deleteObjHack = (k, o) => {
+  console.log("CALLED DOH", k);
   for (const m of o.m) {
     if (delete m[k]) {
       return true;
@@ -41,30 +43,34 @@ export const deleteObjHack = (k, o) => {
 };
 
 export const fastForeachOhE = (o, f) => {
+  console.log("STARTING FFOE");
   if (o.r) {
-    o.q.push(() => {fastForeachOhE(o, f)});
+    o.q.push(() => {
+      fastForeachOhE(o, f);
+    });
     return;
   }
   o.r = true;
   const M = {};
   const run = (i) => {
     o.m.push({});
-    for (const kv of Object.entries(o.m[i]))  {
+    for (const kv of Object.entries(o.m[i])) {
       const k = kv[0];
       const v = kv[1];
+      console.log("CALLED FFOE", i, k, Object.keys(o.m[i]).length);
       f(v);
       if (Object.keys(o.m[i + 1]).length) run(i + 1);
       o.m[i + 1] = {};
       o.m.length = i + 1 + 1;
       M[k] = v;
-    };
+    }
   };
   run(0);
   o.m.length = 0;
   o.m.push(M);
   let fn;
   o.r = false;
-  while (fn = o.q.shift()) {
+  while ((fn = o.q.shift())) {
     fn();
   }
 };

@@ -2,9 +2,11 @@ module FRP.Poll
   ( APoll
   , Poll
   , class Pollable
+  , memoize
   , sham
   , animate
   , poll
+  , keepLatestHack
   , derivative
   , derivative'
   , effectToPoll
@@ -28,7 +30,6 @@ module FRP.Poll
   , create
   , createPure
   , mailbox
-  , memoize
   ) where
 
 import Prelude
@@ -41,19 +42,25 @@ import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Control.Plus (class Plus, empty)
 import Control.Semigroupoid (composeFlipped)
+import Data.Array (find)
+import Data.Array as Array
 import Data.Either (Either, either)
+import Data.Exists (mkExists, runExists)
 import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
 import Data.Function (applyFlipped)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
+import Debug (spy)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, fold, makeEvent, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class as EClass
+import Unsafe.Coerce (unsafeCoerce)
+import Unsafe.Reference (unsafeRefEq)
 
 -- | `APoll` is the more general type of `Poll`, which is parameterized
 -- | over some underlying `event` type.
@@ -73,19 +80,19 @@ type Poll = APoll Event
 instance functorAPoll :: Functor event => Functor (APoll event) where
   map f (APoll b) = APoll \e -> b (map (_ <<< f) e)
 
-instance applyAPoll :: Functor event => Apply (APoll event) where
-  apply (APoll f) (APoll a) = APoll \e -> a (f (compose <$> e))
+instance applyAPoll :: Apply event => Apply (APoll event) where
+  apply (APoll f) (APoll a) = APoll \e -> (map (\ff (Tuple bc aaa) -> bc (ff aaa)) (f (e $> identity))) <*> a (map Tuple e)
 
-instance applicativeAPoll :: Functor event => Applicative (APoll event) where
+instance applicativeAPoll :: Apply event => Applicative (APoll event) where
   pure a = APoll \e -> applyFlipped a <$> e
 
-instance semigroupAPoll :: (Functor event, Semigroup a) => Semigroup (APoll event a) where
+instance semigroupAPoll :: (Apply event, Semigroup a) => Semigroup (APoll event a) where
   append = lift2 append
 
-instance monoidAPoll :: (Functor event, Monoid a) => Monoid (APoll event a) where
+instance monoidAPoll :: (Apply event, Monoid a) => Monoid (APoll event a) where
   mempty = pure mempty
 
-instance heytingAlgebraAPoll :: (Functor event, HeytingAlgebra a) => HeytingAlgebra (APoll event a) where
+instance heytingAlgebraAPoll :: (Apply event, HeytingAlgebra a) => HeytingAlgebra (APoll event a) where
   tt = pure tt
   ff = pure ff
   not = map not
@@ -93,13 +100,13 @@ instance heytingAlgebraAPoll :: (Functor event, HeytingAlgebra a) => HeytingAlge
   conj = lift2 conj
   disj = lift2 disj
 
-instance semiringAPoll :: (Functor event, Semiring a) => Semiring (APoll event a) where
+instance semiringAPoll :: (Apply event, Semiring a) => Semiring (APoll event a) where
   zero = pure zero
   one = pure one
   add = lift2 add
   mul = lift2 mul
 
-instance ringAPoll :: (Functor event, Ring a) => Ring (APoll event a) where
+instance ringAPoll :: (Apply event, Ring a) => Ring (APoll event a) where
   sub = lift2 sub
 
 -- | Construct a `Poll` from its sampling function.
@@ -411,7 +418,10 @@ sampleOnLeft a b = poll \e -> EClass.sampleOnLeft (sample_ a e) (sampleBy compos
 
 -- Poll (Poll a), Event (a -> b) ---> Event (Tuple (Poll a) (a -> b)) ---> Event (Poll b)
 keepLatest :: forall event a. Pollable event event => IsEvent event => APoll event (APoll event a) -> APoll event a
-keepLatest a = poll \e -> Event.fix \ee -> Event.keepLatest (map (flip sample_ ee) (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e)))
+-- keepLatest a = poll \e -> EClass.fix \ee -> EClass.keepLatest (map (flip sample_ ee) (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e)) )
+-- keepLatest a = poll \e -> EClass.keepLatest (sample_ (map (flip sample e) a) e)
+-- keepLatest a = poll \e -> sample_ (switcher empty (map (\(Tuple aa f) -> f <$> aa) (sampleBy Tuple a e))) e
+keepLatest (APoll a) = poll \e -> Event.keepLatest ((map (map \(APoll b) -> b e) a) (e $> identity))
 
 fix :: forall event a. Pollable event event => IsEvent event => (APoll event a -> APoll event a) -> APoll event a
 fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> EClass.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
@@ -434,7 +444,8 @@ create
    . ST Global (PollIO a)
 create = do
   { event, push } <- Event.create
-  pure { poll: sham event, push }
+  p <- memoize (sham event)
+  pure { poll: p, push }
 
 createPure
   :: forall a
@@ -451,10 +462,30 @@ mailbox = do
   { push, event } <- Event.mailbox
   pure { poll: map sham event, push }
 
+newtype UnsafeEventToCompare a b = UnsafeEventToCompare { ei :: Event (a -> b), eo :: Event b, kk :: b -> ST Global Unit }
+
 memoize
   :: forall a
-   . Event a
-  -> ST Global { unsubscribe :: ST Global Unit, poll :: Poll a }
+   . Poll a
+  -> ST Global (Poll a)
 memoize a = do
-  { event, unsubscribe } <- Event.memoize a
-  pure { poll: sham event, unsubscribe }
+  estash <- STRef.new []
+  pure $ poll \e -> makeLemmingEvent \s k -> do
+    stash <- STRef.read estash
+    let ee = stash # find \v -> v # runExists \(UnsafeEventToCompare { ei }) -> unsafeRefEq e (unsafeCoerce ei)
+    case ee of
+      Nothing -> do
+        { event, unsubscribe } <- Event.memoize (sample a e)
+        u <- s event k
+        _ <- STRef.modify (Array.cons (mkExists (UnsafeEventToCompare { ei: e, eo: event, kk: k }))) estash
+        pure do
+          unsubscribe
+          u
+      Just ex -> ex # runExists \(UnsafeEventToCompare { eo, kk }) -> do
+        s eo kk
+
+keepLatestHack :: forall a. Poll (Poll a) -> Poll a
+keepLatestHack a = APoll \e -> makeLemmingEvent \s k ->
+  s (sample_ a e) \p -> let _ = spy "toplevel works" true in void $ s (sample p e) \i -> do
+    let _ = spy "coming through" i
+    k i

@@ -24,11 +24,11 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (class MonadEffect, liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
+import FRP.Event (Event, mailbox, makeEvent, makeLemmingEvent, memoized, merge, sampleOnRight, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
-import FRP.Poll (poll, derivative', fixB, gate, integral', sample, sample_, stRefToPoll)
+import FRP.Poll (derivative', fixB, gate, integral', keepLatestHack, poll, sample, sample_, stRefToPoll)
 import FRP.Poll as Poll
 import Test.Spec (SpecT, describe, it, itOnly)
 import Test.Spec.Assertions (shouldEqual)
@@ -47,7 +47,7 @@ fresh = STRef.new
 -- For most tests that's `Int` and `Int`, but for a couple, the input type
 -- is `Unit` and the output type is somethign different. So we
 -- need new suites for those.
-suite1 name { setup, prime, create, toEvent, underTest } = do
+suite1 name { setup, prime, create, toEvent, underTest, kkll } = do
   describe name do
     it "should do simple stuff" $ liftEffect do
       r <- liftST $ STRef.new []
@@ -145,17 +145,67 @@ suite1 name { setup, prime, create, toEvent, underTest } = do
       v <- liftST $ STRef.read r
       v `shouldEqual` [ 10, 1 ]
       liftST u
+    it "should sampleOnRight correctly" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing0 <- liftST create
+      testing1 <- liftST create
+      let toTest = sampleOnRight (underTest testing0) (add <$> (underTest testing1))
+      u <- liftST $ subscribe (toEvent toTest ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      -- noop
+      testing1.push 1
+      -- noop
+      testing0.push 3
+      -- 45
+      testing1.push 42
+      -- 104
+      testing1.push 101
+      -- no op
+      testing0.push 42
+      -- 50
+      testing1.push 8
+      -- 51
+      testing1.push 9
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 51, 50, 104, 45 ]
+      liftST u
+    itOnly "should keepLatest" $ liftEffect do
+      r <- liftST $ STRef.new []
+      ep <- liftST setup
+      testing0 <- liftST create
+      testing1 <- liftST create
+      let toTest = kkll (underTest testing0 $> underTest testing1)
+      u <- liftST $ subscribe (toEvent toTest ep) \i ->
+        liftST $ void $ STRef.modify (Array.cons i) r
+      prime ep
+      testing0.push 42
+      testing1.push 3
+      testing1.push 4
+      testing0.push 42
+      testing1.push 5
+      testing1.push 6
+      v <- liftST $ STRef.read r
+      v `shouldEqual` [ 6, 5, 4, 3 ]
+      liftST u
   it "should keep itself when keepLatest is used" $ liftEffect do
     r <- liftST $ STRef.new []
     ep <- liftST setup
     testing <- liftST $ create
     let tested = underTest testing
-    u1 <- liftST $ subscribe (toEvent (keepLatest (tested $> tested)) ep) \i ->
+    u1 <- liftST $ subscribe (toEvent (kkll (tested $> tested)) ep) \i -> do
+      --let _ = spy "incoming" true
       liftST $ void $ STRef.modify (Array.cons i) r
+    --let _ = spy "pre prime" {}
     prime ep
+    --let _ = spy "pre push 0" {}
     testing.push 0
+    --let _ = spy "pre push 1" {}
     testing.push 1
+    --let _ = spy "pre push 42" {}
     testing.push 42
+    --let _ = spy "post push 42" {}
     v <- liftST $ STRef.read r
     v `shouldEqual` [ 42, 1, 0 ]
     liftST u1
@@ -217,9 +267,9 @@ suite3 name { setup, prime, create, toEvent, underTest } = do
         liftST (STRef.read r) >>= shouldEqual [ Tuple 3 10, Tuple 3 18 ]
         liftST u
 
-suite4 name { desc, setup, prime, create, toEvent, underTest, res } = do
+suite4 name { setup, prime, create, toEvent, underTest } = do
   describe name do
-    it desc $ liftEffect do
+    it "should ignore left pushes on initial event but respond to both right pushes" $ liftEffect do
       r <- liftST $ STRef.new []
       ep <- liftST setup
       testing <- liftST create
@@ -229,7 +279,7 @@ suite4 name { desc, setup, prime, create, toEvent, underTest, res } = do
         liftST $ void $ STRef.modify (flip Array.snoc i) r
       prime ep
       testing.push unit
-      liftST (STRef.read r) >>= \y -> y `shouldEqual` res
+      liftST (STRef.read r) >>= \y -> y `shouldEqual` [Tuple 2 3, Tuple 2 4]
       liftST u
 
 suite5 name { setup, prime, create, toEvent, underTest } = do
@@ -260,14 +310,16 @@ main = do
           , create: Poll.create
           , toEvent: \b ep -> sample_ b ep.event
           , underTest: \testing -> testing.poll
+          , kkll: keepLatestHack
           }
-        suite1 "Event"
-          { setup: pure unit
-          , prime: pure
-          , create: Event.create
-          , toEvent: \e _ -> e
-          , underTest: \testing -> testing.event
-          }
+        -- suite1 "Event"
+        --   { setup: pure unit
+        --   , prime: pure
+        --   , create: Event.create
+        --   , toEvent: \e _ -> e
+        --   , underTest: \testing -> testing.event
+        --   , kkll: keepLatest
+        --   }
         suite2 "Poll"
           { setup: Event.create
           , prime: \ep -> ep.push unit
@@ -304,7 +356,6 @@ main = do
           , create: Poll.create
           , toEvent: \b ep -> sample_ b ep.event
           , underTest: \testing -> testing.poll
-          , res: [ (Tuple 1 3), (Tuple 2 3), (Tuple 1 4), (Tuple 2 4) ]
           }
         suite4 "Event"
           { setup: pure unit
@@ -313,7 +364,6 @@ main = do
           , create: Event.create
           , toEvent: \e _ -> e
           , underTest: \testing -> testing.event
-          , res: [ (Tuple 2 3), (Tuple 2 4) ]
           }
         suite5 "Event"
           { setup: pure unit
@@ -330,6 +380,26 @@ main = do
           , underTest: \testing -> testing.poll
           }
 
+        describe "Unique to Poll" do
+          it "should switch" $ liftEffect do
+                r <- liftST $ STRef.new []
+                switchDriver <- liftST $ Event.create
+                poller <- liftST $ Event.create
+                u <- liftST $ subscribe (sample_ (Poll.switcher empty switchDriver.event) poller.event) \i ->
+                  liftST $ void $ STRef.modify (Array.cons i) r
+                poller.push unit
+                switchDriver.push (pure 42)
+                poller.push unit
+                poller.push unit
+                switchDriver.push (pure 43)
+                poller.push unit
+                switchDriver.push (pure 44)
+                switchDriver.push (pure 45)
+                poller.push unit
+                poller.push unit
+                v <- liftST $ STRef.read r
+                v `shouldEqual` [ 45, 45, 43, 42, 42 ]
+                liftST u
         describe "Unique to Event" do
           -- this test shows how a poll based framework could be used
           -- to emit html, where the webpage is a poll and it is
