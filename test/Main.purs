@@ -201,6 +201,31 @@ suite1 name { setup, prime, create, toEvent, underTest } = do
     v <- liftST $ STRef.read r
     v `shouldEqual` [ 42, 1, 0 ]
     liftST u1
+  it "always applies updates from left to right, emitting at each update" $ liftEffect do
+    r <- liftST $ STRef.new []
+    ep <- liftST setup
+    testing <- liftST create
+    u <- liftST $ Event.subscribe (toEvent (let x = (underTest testing) in (map add x) <*> x) ep) \i ->
+      liftST $ void $ STRef.modify (flip Array.snoc i) r
+    prime ep
+    testing.push 1
+    testing.push 2
+    o <- liftST $ STRef.read r
+    o `shouldEqual` [ 2, 3, 4 ]
+    liftST $ u
+  it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
+    r <- liftST $ STRef.new []
+    ep <- liftST setup
+    testing <- liftST create
+    let addSixNums x y z a b c = x + y + z + a + b + c
+    u <- liftST $ Event.subscribe (toEvent (let x = (underTest testing) in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) ep) \i ->
+      liftST $ void $ STRef.modify (flip Array.snoc i) r
+    prime ep
+    testing.push 1
+    testing.push 2
+    o <- liftST $ STRef.read r
+    o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
+    liftST $ u
 
 suite2 name { setup, prime, create, toEvent, underTest } = do
   describe name do
@@ -271,7 +296,7 @@ suite4 name { setup, prime, create, toEvent, underTest } = do
         liftST $ void $ STRef.modify (flip Array.snoc i) r
       prime ep
       testing.push unit
-      liftST (STRef.read r) >>= \y -> y `shouldEqual` [Tuple 2 3, Tuple 2 4]
+      liftST (STRef.read r) >>= \y -> y `shouldEqual` [ Tuple 2 3, Tuple 2 4 ]
       liftST u
 
 suite5 name { setup, prime, create, toEvent, underTest } = do
@@ -291,6 +316,24 @@ suite5 name { setup, prime, create, toEvent, underTest } = do
       rf0' `shouldEqual` "ac"
       rf1' `shouldEqual` "cb"
       liftST $ u1 *> u2
+
+suite6 name { setup, prime, create, toEvent, underTest } = do
+  describe name do
+    it "respects both sides of application" $ liftEffect do
+      ep <- liftST setup
+      testing <- liftST create
+      rf0 <- liftST $ STRef.new ""
+      rf1 <- liftST $ STRef.new ""
+      let event = underTest testing
+      void $ liftST $ Event.subscribe (toEvent ((append <$> (once event $> "a")) <*> event) ep) (liftST <<< void <<< flip STRef.write rf0)
+      void $ liftST $ Event.subscribe (toEvent ((append <$> event) <*> (once event $> "b")) ep) (liftST <<< void <<< flip STRef.write rf1)
+      prime ep
+      testing.push "c"
+      rf0' <- liftST $ STRef.read rf0
+      rf1' <- liftST $ STRef.read rf1
+      rf0' `shouldEqual` "ac"
+      rf1' `shouldEqual` "cb"
+
 
 main :: Effect Unit
 main = do
@@ -369,27 +412,103 @@ main = do
           , toEvent: \b ep -> sample_ b ep.event
           , underTest: \testing -> testing.poll
           }
-
+        suite6 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+        suite6 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
         describe "Unique to Poll" do
+          it "should have a fixed point with an initial value" do
+            { event, push } <- liftST $ Event.create
+            rf <- liftEffect $ Ref.new []
+            unsub <- liftST $ Event.subscribe (sample_ (fixB 0 (map (add 1))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+            liftEffect do
+              push unit
+              push unit
+              push unit
+              push unit
+              o <- Ref.read rf
+              o `shouldEqual` [ 4, 3, 2, 1 ]
+              liftST $ unsub
           it "should switch" $ liftEffect do
-                r <- liftST $ STRef.new []
-                switchDriver <- liftST $ Event.create
-                poller <- liftST $ Event.create
-                u <- liftST $ subscribe (sample_ (Poll.switcher empty switchDriver.event) poller.event) \i ->
-                  liftST $ void $ STRef.modify (Array.cons i) r
-                poller.push unit
-                switchDriver.push (pure 42)
-                poller.push unit
-                poller.push unit
-                switchDriver.push (pure 43)
-                poller.push unit
-                switchDriver.push (pure 44)
-                switchDriver.push (pure 45)
-                poller.push unit
-                poller.push unit
-                v <- liftST $ STRef.read r
-                v `shouldEqual` [ 45, 45, 43, 42, 42 ]
-                liftST u
+            r <- liftST $ STRef.new []
+            switchDriver <- liftST $ Event.create
+            poller <- liftST $ Event.create
+            u <- liftST $ subscribe (sample_ (Poll.switcher empty switchDriver.event) poller.event) \i ->
+              liftST $ void $ STRef.modify (Array.cons i) r
+            poller.push unit
+            switchDriver.push (pure 42)
+            poller.push unit
+            poller.push unit
+            switchDriver.push (pure 43)
+            poller.push unit
+            switchDriver.push (pure 44)
+            switchDriver.push (pure 45)
+            poller.push unit
+            poller.push unit
+            v <- liftST $ STRef.read r
+            v `shouldEqual` [ 45, 45, 43, 42, 42 ]
+            liftST u
+
+          it "should gate when gate is used" $ liftEffect do
+            eio <- liftST $ Event.create
+            r <- liftST $ STRef.new false
+            n <- liftST $ STRef.new 0
+            let b = stRefToPoll r
+            _ <- liftST $ Event.subscribe (gate b eio.event) \_ ->
+              liftST $ void $ STRef.modify (add 1) n
+            do
+              eio.push unit
+              eio.push unit
+            liftST $ void $ STRef.write true r
+            do
+              eio.push unit
+              eio.push unit
+              eio.push unit
+            liftST $ void $ STRef.write false r
+            do
+              eio.push unit
+              eio.push unit
+            res <- liftST $ STRef.read n
+            shouldEqual res 3
+
+          describe "derivative" do
+            it "should give some sane approximation" do
+              { event, push } <- liftST $ Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftST $ Event.subscribe (sample_ (derivative' (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                push unit
+                push unit
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [ 54.0, 18.0, 6.0, 0.0 ]
+                liftST $ unsub
+
+          describe "integral" do
+            it "should give some sane approximation" do
+              { event, push } <- liftST $ Event.create
+              rf <- liftEffect $ Ref.new []
+              unsub <- liftST $ Event.subscribe (sample_ (integral' 42.0 (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                push unit
+                push unit
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [ 120.0, 66.0, 48.0, 42.0 ]
+                liftST $ unsub
+
         describe "Unique to Event" do
           -- this test shows how a poll based framework could be used
           -- to emit html, where the webpage is a poll and it is
@@ -501,6 +620,114 @@ main = do
               , false
               ]
             liftST u
+          it "debounce debounces 1" do
+            { event, push } <- liftST $ Event.create
+            rf <- liftEffect $ Ref.new []
+            unsub <- liftST $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
+            liftEffect do
+              push 1
+              push 2
+              push 3
+              push 4
+            delay (Milliseconds 1500.0)
+            liftEffect do
+              push 5
+              push 6
+              o <- Ref.read rf
+              o `shouldEqual` [ 5, 1 ]
+              liftST $ unsub
+          it "debounce debounces 2" do
+            let
+              f emitSecond = do
+                { event, push } <- liftST $ Event.create
+                rf <- liftEffect $ Ref.new []
+                unsub <- liftST $ Event.subscribe (debounce (Milliseconds 500.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
+                liftEffect $ push unit
+                when emitSecond do
+                  liftEffect $ push unit
+                delay $ Milliseconds 250.0
+                liftEffect $ push unit
+                delay $ Milliseconds 300.0
+                liftEffect $ push unit
+                liftEffect $ push unit
+                o <- liftEffect $ Ref.read rf
+                length o `shouldEqual` 2
+                liftST $ unsub
+            f true
+            f false
+          it "should not memoize" $ liftEffect do
+            { push, event } <- liftST Event.create
+            count <- Ref.new 0
+            let
+              fn v =
+                unsafePerformEffect do
+                  Ref.modify_ (add 1) count
+                  pure $ v
+            let mapped = identity (map fn event)
+            u1 <- liftST $ Event.subscribe mapped (pure (pure unit))
+            u2 <- liftST $ Event.subscribe mapped (pure (pure unit))
+            push 0
+            Ref.read count >>= shouldEqual 2
+            liftST u1
+            liftST u2
+          it "should memoize" $ liftEffect do
+            { push, event } <- liftST $ Event.create
+            count <- liftST $ STRef.new 0
+            let
+              fn v =
+                unsafePerformEffect do
+                  void $ liftST $ STRef.modify (add 1) count
+                  pure $ v
+              mapped = keepLatest $
+                memoized (identity (map fn event)) \e -> Event.makeEvent \k -> do
+                  u1 <- Event.subscribe e (\_ -> pure unit)
+                  u2 <- Event.subscribe e k
+                  pure (u1 *> u2)
+            u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
+            push 0
+            (liftST $ STRef.read count) >>= shouldEqual 1
+            liftST $ u
+          it "should not memoize when applied internally" $ liftEffect do
+            { push, event } <- liftST $ Event.create
+            count <- liftST $ STRef.new 0
+            let
+              fn v =
+                unsafePerformEffect do
+                  void $ liftST $ STRef.modify (add 1) count
+                  pure $ v
+              mapped = keepLatest
+                $ memoized event
+                $ (lcmap (identity <<< map fn)) \e ->
+                    Event.makeEvent \k -> do
+                      u1 <- liftST $ Event.subscribe e (\_ -> pure unit)
+                      u2 <- liftST $ Event.subscribe e k
+                      pure (u1 *> u2)
+            u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
+            push 0
+            (liftST $ STRef.read count) >>= shouldEqual 2
+            liftST $ u
+          it "should mailboxed" $ liftEffect do
+            r <- liftST $ STRef.new []
+            e <- liftST $ mailbox
+            u <- liftST $ Event.subscribe (e.event 3 <|> e.event 4) \i ->
+              liftST $ void $ STRef.modify (Array.cons i) r
+            do
+              e.push { address: 42, payload: true }
+              e.push { address: 43, payload: true }
+              e.push { address: 44, payload: true }
+              e.push { address: 3, payload: true } --
+              e.push { address: 42, payload: false }
+              e.push { address: 43, payload: true }
+              e.push { address: 43, payload: false }
+              e.push { address: 4, payload: false } --
+              e.push { address: 42, payload: false }
+              e.push { address: 43, payload: true }
+              e.push { address: 3, payload: false } --
+              e.push { address: 101, payload: true }
+            o <- liftST $ STRef.read r
+            o `shouldEqual` [ false, false, true ]
+            liftST $ u
+
           describe "Performance" do
             it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
               starts <- getTime <$> now
@@ -543,235 +770,3 @@ main = do
               liftST u
               ends <- getTime <$> now
               write ("Duration: " <> show (ends - starts) <> "\n")
-          describe "Memoization" do
-            it "should not memoize" $ liftEffect do
-              { push, event } <- liftST Event.create
-              count <- Ref.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    Ref.modify_ (add 1) count
-                    pure $ v
-              let mapped = identity (map fn event)
-              u1 <- liftST $ Event.subscribe mapped (pure (pure unit))
-              u2 <- liftST $ Event.subscribe mapped (pure (pure unit))
-              push 0
-              Ref.read count >>= shouldEqual 2
-              liftST u1
-              liftST u2
-            it "should memoize" $ liftEffect do
-              { push, event } <- liftST $ Event.create
-              count <- liftST $ STRef.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    void $ liftST $ STRef.modify (add 1) count
-                    pure $ v
-                mapped = keepLatest $
-                  memoized (identity (map fn event)) \e -> Event.makeEvent \k -> do
-                    u1 <- Event.subscribe e (\_ -> pure unit)
-                    u2 <- Event.subscribe e k
-                    pure (u1 *> u2)
-              u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
-              push 0
-              (liftST $ STRef.read count) >>= shouldEqual 1
-              liftST $ u
-            it "should not memoize when applied internally" $ liftEffect do
-              { push, event } <- liftST $ Event.create
-              count <- liftST $ STRef.new 0
-              let
-                fn v =
-                  unsafePerformEffect do
-                    void $ liftST $ STRef.modify (add 1) count
-                    pure $ v
-                mapped = keepLatest
-                  $ memoized event
-                  $ (lcmap (identity <<< map fn)) \e ->
-                      Event.makeEvent \k -> do
-                        u1 <- liftST $ Event.subscribe e (\_ -> pure unit)
-                        u2 <- liftST $ Event.subscribe e k
-                        pure (u1 *> u2)
-              u <- liftST $ Event.subscribe mapped (\_ -> pure unit)
-              push 0
-              (liftST $ STRef.read count) >>= shouldEqual 2
-              liftST $ u
-          describe "Apply" do
-            it "respects both sides of application" $ liftEffect do
-              { event, push } <- liftST $ Event.create
-              rf0 <- liftST $ STRef.new ""
-              rf1 <- liftST $ STRef.new ""
-              void $ liftST $ Event.subscribe ((append <$> (once event $> "a")) <*> event) (liftST <<< void <<< flip STRef.write rf0)
-              void $ liftST $ Event.subscribe ((append <$> event) <*> (once event $> "b")) (liftST <<< void <<< flip STRef.write rf1)
-              push "c"
-              rf0' <- liftST $ STRef.read rf0
-              rf1' <- liftST $ STRef.read rf1
-              rf0' `shouldEqual` "ac"
-              rf1' `shouldEqual` "cb"
-            it "always applies updates from left to right, emitting at each update" $ liftEffect do
-              r <- liftST $ STRef.new []
-              { push, event } <- liftST $ Event.create
-              u <- liftST $ Event.subscribe (let x = event in (map add x) <*> x) \i ->
-                liftST $ void $ STRef.modify (flip Array.snoc i) r
-              push 1
-              push 2
-              o <- liftST $ STRef.read r
-              o `shouldEqual` [ 2, 3, 4 ]
-              liftST $ u
-            it "always applies multiple updates from left to right, emitting at each update" $ liftEffect do
-              r <- liftST $ STRef.new []
-              { push, event } <- liftST $ Event.create
-              let addSixNums x y z a b c = x + y + z + a + b + c
-              u <- liftST $ Event.subscribe (let x = event in addSixNums <$> x <*> x <*> x <*> x <*> x <*> x) \i ->
-                liftST $ void $ STRef.modify (flip Array.snoc i) r
-              push 1
-              push 2
-              o <- liftST $ STRef.read r
-              o `shouldEqual` [ 6, 7, 8, 9, 10, 11, 12 ]
-              liftST $ u
-          describe "Mailboxed" do
-            it "should work" $ liftEffect do
-              r <- liftST $ STRef.new []
-              e <- liftST $ mailbox
-              u <- liftST $ Event.subscribe (e.event 3 <|> e.event 4) \i ->
-                liftST $ void $ STRef.modify (Array.cons i) r
-              do
-                e.push { address: 42, payload: true }
-                e.push { address: 43, payload: true }
-                e.push { address: 44, payload: true }
-                e.push { address: 3, payload: true } --
-                e.push { address: 42, payload: false }
-                e.push { address: 43, payload: true }
-                e.push { address: 43, payload: false }
-                e.push { address: 4, payload: false } --
-                e.push { address: 42, payload: false }
-                e.push { address: 43, payload: true }
-                e.push { address: 3, payload: false } --
-                e.push { address: 101, payload: true }
-              o <- liftST $ STRef.read r
-              o `shouldEqual` [ false, false, true ]
-              liftST $ u
-          describe "Mailbox" do
-            it "should work" $ liftEffect do
-              r <- liftST $ STRef.new []
-              e <- liftST $ Event.mailbox
-              u <- liftST $ Event.subscribe (e.event 3 <|> e.event 4) \i ->
-                liftST $ void $ STRef.modify (Array.cons i) r
-              do
-                e.push { address: 42, payload: true }
-                e.push { address: 43, payload: true }
-                e.push { address: 44, payload: true }
-                e.push { address: 3, payload: true } --
-                e.push { address: 42, payload: false }
-                e.push { address: 43, payload: true }
-                e.push { address: 43, payload: false }
-                e.push { address: 4, payload: false } --
-                e.push { address: 42, payload: false }
-                e.push { address: 43, payload: true }
-                e.push { address: 3, payload: false } --
-                e.push { address: 101, payload: true }
-              o <- liftST $ STRef.read r
-              o `shouldEqual` [ false, false, true ]
-              liftST $ u
-          describe "Gate" do
-            it "should work" $ liftEffect do
-              eio <- liftST $ Event.create
-              r <- liftST $ STRef.new false
-              n <- liftST $ STRef.new 0
-              let b = stRefToPoll r
-              _ <- liftST $ Event.subscribe (gate b eio.event) \_ ->
-                liftST $ void $ STRef.modify (add 1) n
-              do
-                eio.push unit
-                eio.push unit
-              liftST $ void $ STRef.write true r
-              do
-                eio.push unit
-                eio.push unit
-                eio.push unit
-              liftST $ void $ STRef.write false r
-              do
-                eio.push unit
-                eio.push unit
-              res <- liftST $ STRef.read n
-              shouldEqual res 3
-
-        describe "Miscellaneous" do
-          describe "Fix" do
-            it "should work" do
-              { event, push } <- liftST $ Event.create
-              rf <- liftEffect $ Ref.new []
-              unsub <- liftST $ Event.subscribe (debounce (Milliseconds 1000.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
-              liftEffect do
-                push 1
-                push 2
-                push 3
-                push 4
-              delay (Milliseconds 1500.0)
-              liftEffect do
-                push 5
-                push 6
-                o <- Ref.read rf
-                o `shouldEqual` [ 5, 1 ]
-                liftST $ unsub
-
-          describe "derivative" do
-            it "should give some sane approximation" do
-              { event, push } <- liftST $ Event.create
-              rf <- liftEffect $ Ref.new []
-              unsub <- liftST $ Event.subscribe (sample_ (derivative' (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
-              liftEffect do
-                push unit
-                push unit
-                push unit
-                push unit
-                o <- Ref.read rf
-                o `shouldEqual` [ 54.0, 18.0, 6.0, 0.0 ]
-                liftST $ unsub
-
-          describe "integral" do
-            it "should give some sane approximation" do
-              { event, push } <- liftST $ Event.create
-              rf <- liftEffect $ Ref.new []
-              unsub <- liftST $ Event.subscribe (sample_ (integral' 42.0 (fixB 1.0 (map (add 1.0))) (fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
-              liftEffect do
-                push unit
-                push unit
-                push unit
-                push unit
-                o <- Ref.read rf
-                o `shouldEqual` [ 120.0, 66.0, 48.0, 42.0 ]
-                liftST $ unsub
-          describe "FixB" do
-            it "should work" do
-              { event, push } <- liftST $ Event.create
-              rf <- liftEffect $ Ref.new []
-              unsub <- liftST $ Event.subscribe (sample_ (fixB 0 (map (add 1))) event) (\i -> Ref.modify_ (Array.cons i) rf)
-              liftEffect do
-                push unit
-                push unit
-                push unit
-                push unit
-                o <- Ref.read rf
-                o `shouldEqual` [ 4, 3, 2, 1 ]
-                liftST $ unsub
-
-          describe "Debounce" do
-            it "debounces" do
-              let
-                f emitSecond = do
-                  { event, push } <- liftST $ Event.create
-                  rf <- liftEffect $ Ref.new []
-                  unsub <- liftST $ Event.subscribe (debounce (Milliseconds 500.0) event) (\i -> Ref.modify_ (Array.cons i) rf)
-                  liftEffect $ push unit
-                  when emitSecond do
-                    liftEffect $ push unit
-                  delay $ Milliseconds 250.0
-                  liftEffect $ push unit
-                  delay $ Milliseconds 300.0
-                  liftEffect $ push unit
-                  liftEffect $ push unit
-                  o <- liftEffect $ Ref.read rf
-                  length o `shouldEqual` 2
-                  liftST $ unsub
-              f true
-              f false
