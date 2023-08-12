@@ -50,6 +50,7 @@ import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
 import Data.Foldable (oneOf)
 import Data.Function (applyFlipped)
+import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.HeytingAlgebra (ff, implies, tt)
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
@@ -79,6 +80,10 @@ type Poll = APoll Event
 
 instance functorAPoll :: Functor event => Functor (APoll event) where
   map f (APoll b) = APoll \e -> b (map (_ <<< f) e)
+
+instance functorWithIndexAPoll :: (IsEvent event, Pollable event event) => FunctorWithIndex Int (APoll event) where
+  mapWithIndex f e = EClass.mapAccum (\a b -> Tuple (a + 1) (f a b)) 0 e
+
 
 instance applyAPoll :: Apply event => Apply (APoll event) where
   apply (APoll f) (APoll a) = APoll \e -> (map (\ff (Tuple bc aaa) -> bc (ff aaa)) (f (e $> identity))) <*> a (map Tuple e)
