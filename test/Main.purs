@@ -181,7 +181,7 @@ suite1 name { setup, prime, create, toEvent, underTest } = do
       testing0.push 42
       testing1.push 3
       testing1.push 4
-      -- testing0.push 42
+      testing0.push 42
       testing1.push 5
       testing1.push 6
       v <- liftST $ STRef.read r
