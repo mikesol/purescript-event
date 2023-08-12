@@ -46,6 +46,7 @@ import Data.Either (Either(..), either, hush)
 import Data.Filterable as Filterable
 import Data.Foldable (class Foldable, for_)
 import Data.Foldable as M
+import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..))
@@ -73,6 +74,9 @@ newtype Event a = Event (STFn2 Boolean (EffectFn1 a Unit) Global (ST Global Unit
 
 instance functorEvent :: Functor Event where
   map f (Event e) = Event (mkSTFn2 (\b k -> runSTFn2 e b (mkEffectFn1 (\a -> runEffectFn1 k (f a)))))
+
+instance functorWithIndexEvent :: FunctorWithIndex Int Event where
+  mapWithIndex f e = Class.mapAccum (\a b -> Tuple (a + 1) (f a b)) 0 e
 
 instance compactableEvent :: Compactable Event where
   compact = filter identity

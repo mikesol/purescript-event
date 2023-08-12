@@ -6,6 +6,7 @@ module FRP.Poll
   , sham
   , animate
   , poll
+  , stToPoll
   , derivative
   , derivative'
   , effectToPoll
@@ -379,6 +380,11 @@ refToPoll r = do
 effectToPoll :: Effect ~> Poll
 effectToPoll ee = do
   poll \e -> makeEvent \k -> subscribe e \f -> ee >>= k <<< f
+
+-- | Turn an ST Global into a poll
+stToPoll :: ST Global ~> Poll
+stToPoll ee = do
+  poll \e -> makeLemmingEvent \s k -> s e \f -> ee >>= k <<< f
 
 filterMap
   :: forall event a b
