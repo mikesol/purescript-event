@@ -22,7 +22,7 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event (mailbox, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
+import FRP.Event (mailbox, mailboxed, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
@@ -334,6 +334,31 @@ suite6 name { setup, prime, create, toEvent, underTest } = do
       rf0' `shouldEqual` "ac"
       rf1' `shouldEqual` "cb"
 
+suite7 name { setup, prime, create, mailbox, toEvent, underTest } = do
+  it "should mailbox" $ liftEffect do
+    r <- liftST $ STRef.new []
+    ep <- liftST setup
+    e <- liftST mailbox
+    let event = underTest e
+    u <- liftST $ Event.subscribe (toEvent (event 3 <|> event 4) ep) \i ->
+      liftST $ void $ STRef.modify (Array.cons i) r
+    do
+      prime ep
+      e.push { address: 42, payload: true }
+      e.push { address: 43, payload: true }
+      e.push { address: 44, payload: true }
+      e.push { address: 3, payload: true } --
+      e.push { address: 42, payload: false }
+      e.push { address: 43, payload: true }
+      e.push { address: 43, payload: false }
+      e.push { address: 4, payload: false } --
+      e.push { address: 42, payload: false }
+      e.push { address: 43, payload: true }
+      e.push { address: 3, payload: false } --
+      e.push { address: 101, payload: true }
+    o <- liftST $ STRef.read r
+    o `shouldEqual` [ false, false, true ]
+    liftST $ u
 
 main :: Effect Unit
 main = do
@@ -423,6 +448,22 @@ main = do
           { setup: Event.create
           , prime: \ep -> ep.push unit
           , create: Poll.create
+          , toEvent: \b ep -> sample_ b ep.event
+          , underTest: \testing -> testing.poll
+          }
+        suite7 "Event"
+          { setup: pure unit
+          , prime: pure
+          , create: Event.create
+          , mailbox: Event.mailbox
+          , toEvent: \e _ -> e
+          , underTest: \testing -> testing.event
+          }
+        suite7 "Poll"
+          { setup: Event.create
+          , prime: \ep -> ep.push unit
+          , create: Poll.create
+          , mailbox: Poll.mailbox
           , toEvent: \b ep -> sample_ b ep.event
           , underTest: \testing -> testing.poll
           }
@@ -708,8 +749,8 @@ main = do
             liftST $ u
           it "should mailboxed" $ liftEffect do
             r <- liftST $ STRef.new []
-            e <- liftST $ mailbox
-            u <- liftST $ Event.subscribe (e.event 3 <|> e.event 4) \i ->
+            e <- liftST $ Event.create
+            u <- liftST $ Event.subscribe (keepLatest $ mailboxed e.event \f -> f 3 <|> f 4) \i ->
               liftST $ void $ STRef.modify (Array.cons i) r
             do
               e.push { address: 42, payload: true }
@@ -726,7 +767,7 @@ main = do
               e.push { address: 101, payload: true }
             o <- liftST $ STRef.read r
             o `shouldEqual` [ false, false, true ]
-            liftST $ u
+            liftST u
 
           describe "Performance" do
             it "handles 10 subscriptions with a simple event and 1000 pushes" $ liftEffect do
