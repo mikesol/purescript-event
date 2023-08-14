@@ -2,7 +2,7 @@ module FRP.Poll
   ( APoll
   , Poll
   , class Pollable
-  , memoize
+  , rant
   , sham
   , animate
   , poll
@@ -42,10 +42,7 @@ import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Control.Plus (class Plus, empty)
 import Control.Semigroupoid (composeFlipped)
-import Data.Array (find)
-import Data.Array as Array
 import Data.Either (Either, either)
-import Data.Exists (mkExists, runExists)
 import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
 import Data.Foldable (oneOf)
@@ -59,9 +56,8 @@ import Effect.Ref as Ref
 import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
+import FRP.Event.Class (sampleOnRightOp)
 import FRP.Event.Class as EClass
-import Unsafe.Coerce (unsafeCoerce)
-import Unsafe.Reference (unsafeRefEq)
 
 -- | `APoll` is the more general type of `Poll`, which is parameterized
 -- | over some underlying `event` type.
@@ -83,7 +79,6 @@ instance functorAPoll :: Functor event => Functor (APoll event) where
 
 instance functorWithIndexAPoll :: (IsEvent event, Pollable event event) => FunctorWithIndex Int (APoll event) where
   mapWithIndex f e = EClass.mapAccum (\a b -> Tuple (a + 1) (f a b)) 0 e
-
 
 instance applyAPoll :: Apply event => Apply (APoll event) where
   apply (APoll f) (APoll a) = APoll \e -> (map (\ff (Tuple bc aaa) -> bc (ff aaa)) (f (e $> identity))) <*> a (map Tuple e)
@@ -447,7 +442,7 @@ create
    . ST Global (PollIO a)
 create = do
   { event, push } <- Event.create
-  p <- memoize (sham event)
+  { poll: p } <- rant (sham event)
   pure { poll: p, push }
 
 createPure
@@ -465,27 +460,26 @@ mailbox = do
   { push, event } <- Event.mailbox
   pure { poll: map sham event, push }
 
-newtype UnsafeEventToCompare a b = UnsafeEventToCompare { ei :: Event (a -> b), eo :: Event b, kk :: b -> ST Global Unit }
-
-memoize
+rant
   :: forall a
    . Poll a
-  -> ST Global (Poll a)
-memoize a = do
-  estash <- STRef.new []
-  pure $ poll \e -> makeLemmingEvent \s k -> do
-    stash <- STRef.read estash
-    let ee = stash # find \v -> v # runExists \(UnsafeEventToCompare { ei }) -> unsafeRefEq e (unsafeCoerce ei)
-    case ee of
-      Nothing -> do
-        { event, unsubscribe } <- Event.memoize (sample a e)
-        u <- s event k
-        _ <- STRef.modify (Array.cons (mkExists (UnsafeEventToCompare { ei: e, eo: event, kk: k }))) estash
+  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
+rant a = do
+  ep <- Event.create
+  started <- STRef.new false
+  unsub <- STRef.new (pure unit)
+  pure $
+    { unsubscribe: join (STRef.read unsub)
+    , poll: poll \e -> makeLemmingEvent \s k -> do
+        st <- STRef.read started
+        u3 <- s (sampleOnRightOp e ep.event) k
+        when (not st) do
+          unsubscribe <- Event.subscribe (sample_ a (EClass.once e)) ep.push
+          void $ STRef.write true started
+          void $ flip STRef.write unsub unsubscribe
         pure do
-          unsubscribe
-          u
-      Just ex -> ex # runExists \(UnsafeEventToCompare { eo, kk }) -> do
-        s eo kk
+          u3
+    }
 
 data KeepLatestOrder event a b = KeepLatestStart (APoll event a) (a -> b) | KeepLatestLast b
 
