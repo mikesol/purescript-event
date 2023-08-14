@@ -8,10 +8,10 @@ import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Ref (STRef)
 import Control.Monad.ST.Ref as STRef
 import Control.Plus (empty)
-import Data.Array (length, replicate)
+import Data.Array (length, replicate, (..))
 import Data.Array as Array
 import Data.Filterable (class Filterable, filter)
-import Data.Foldable (sequence_)
+import Data.Foldable (for_, sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, sequence)
@@ -26,7 +26,7 @@ import FRP.Event (mailbox, mailboxed, makeEvent, makeLemmingEvent, memoized, mer
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
-import FRP.Poll (derivative', fixB, gate, integral', poll, sample, sample_, stRefToPoll)
+import FRP.Poll (deflect, derivative', fixB, gate, integral', poll, rant, sample, sample_, stRefToPoll)
 import FRP.Poll as Poll
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -468,6 +468,67 @@ main = do
           , underTest: \testing -> testing.poll
           }
         describe "Unique to Poll" do
+          it "should obliterate purity when on a rant" do
+            { event, push } <- liftST $ Event.create
+            rf <- liftEffect $ Ref.new []
+            unsub <- liftST $ Event.subscribe (sample_ (pure 42) event) (\i -> Ref.modify_ (Array.cons i) rf)
+            liftEffect do
+              push unit
+              o <- Ref.read rf
+              o `shouldEqual` [ 42 ]
+              liftST $ unsub
+              Ref.write [] rf
+            ranting <- liftST $ rant (pure 42)
+            for_ (0 .. 1) \_ -> do
+              unsub2 <- liftST $ Event.subscribe (sample_ ranting.poll event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` []
+                liftST $ unsub2
+                Ref.write [] rf
+          it "should mix together polling and purity" do
+            { event, push } <- liftST Event.create
+            rf <- liftEffect $ Ref.new []
+            pl <- liftST Poll.create
+            for_ (0 .. 1) \_ -> do
+              unsub <- liftST $ Event.subscribe (sample_ (pure 42 <|> pure 42 <|> pl.poll) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [ 42, 42 ]
+                pl.push 43
+                oo <- Ref.read rf
+                oo `shouldEqual` [ 43, 42, 42 ]
+                liftST $ unsub
+                Ref.write [] rf
+          it "should give canned responses and hang up on deflect" do
+            { event, push } <- liftST Event.create
+            rf <- liftEffect $ Ref.new []
+            pl <- liftST Poll.create
+            unsub <- liftST $ Event.subscribe (sample_ (pure 42 <|> pure 42 <|> pl.poll) event) (\i -> Ref.modify_ (Array.cons i) rf)
+            liftEffect do
+              push unit
+              o <- Ref.read rf
+              o `shouldEqual` [ 42, 42 ]
+              pl.push 43
+              oo <- Ref.read rf
+              oo `shouldEqual` [ 43, 42, 42 ]
+              liftST $ unsub
+              Ref.write [] rf
+            deflecting <- liftST $ deflect (pure 42 <|> pure 42 <|> pl.poll)
+            for_ (0 .. 1) \_ -> do
+              unsub2 <- liftST $ Event.subscribe (sample_ deflecting event) (\i -> Ref.modify_ (Array.cons i) rf)
+              liftEffect do
+                push unit
+                o <- Ref.read rf
+                o `shouldEqual` [ 42, 42 ]
+                pl.push 43
+                oo <- Ref.read rf
+                -- deflected, so ignores incoming stuff
+                oo `shouldEqual` [ 42, 42 ]
+                liftST $ unsub2
+                Ref.write [] rf
           it "should have a fixed point with an initial value" do
             { event, push } <- liftST $ Event.create
             rf <- liftEffect $ Ref.new []

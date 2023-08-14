@@ -3,6 +3,7 @@ module FRP.Poll
   , Poll
   , class Pollable
   , rant
+  , deflect
   , sham
   , animate
   , poll
@@ -42,10 +43,11 @@ import Control.Monad.ST.Internal (ST)
 import Control.Monad.ST.Internal as STRef
 import Control.Plus (class Plus, empty)
 import Control.Semigroupoid (composeFlipped)
+import Data.Array as Array
 import Data.Either (Either, either)
 import Data.Filterable (eitherBool, maybeBool)
 import Data.Filterable as Filterable
-import Data.Foldable (oneOf)
+import Data.Foldable (for_, oneOf)
 import Data.Function (applyFlipped)
 import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.HeytingAlgebra (ff, implies, tt)
@@ -468,18 +470,40 @@ rant a = do
   ep <- Event.create
   started <- STRef.new false
   unsub <- STRef.new (pure unit)
-  pure $
+  pure
     { unsubscribe: join (STRef.read unsub)
     , poll: poll \e -> makeLemmingEvent \s k -> do
         st <- STRef.read started
-        u3 <- s (sampleOnRightOp e ep.event) k
         when (not st) do
           unsubscribe <- Event.subscribe (sample_ a (EClass.once e)) ep.push
           void $ STRef.write true started
           void $ flip STRef.write unsub unsubscribe
+        u3 <- s (sampleOnRightOp e ep.event) k
         pure do
           u3
     }
+
+deflect
+  :: forall a
+   . Poll a
+  -> ST Global (Poll a)
+deflect a = do
+  ep <- STRef.new []
+  started <- STRef.new false
+  unsub <- STRef.new (pure unit)
+  pure $ poll \e -> makeLemmingEvent \s k -> do
+    st <- STRef.read started
+    when (not st) do
+      unsubscribe <- Event.subscribe (sample_ a (EClass.once e))
+        (void <<< liftST <<< flip STRef.modify ep <<< flip Array.snoc)
+      void $ STRef.write true started
+      void $ STRef.write unsubscribe unsub
+    u3 <- s e \f -> do
+      join (STRef.read unsub)
+      r <- STRef.read ep
+      for_ r (k <<< f)
+    pure do
+      u3
 
 data KeepLatestOrder event a b = KeepLatestStart (APoll event a) (a -> b) | KeepLatestLast b
 
