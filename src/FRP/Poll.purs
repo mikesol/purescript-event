@@ -467,7 +467,7 @@ rant
    . Poll a
   -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
 rant a = do
-  ep <- Event.create
+  ep <- Event.createPure
   started <- STRef.new false
   unsub <- STRef.new (pure unit)
   pure
@@ -475,7 +475,7 @@ rant a = do
     , poll: poll \e -> makeLemmingEvent \s k -> do
         st <- STRef.read started
         when (not st) do
-          unsubscribe <- Event.subscribe (sample_ a (EClass.once e)) ep.push
+          unsubscribe <- s (sample_ a (EClass.once e)) ep.push
           void $ STRef.write true started
           void $ flip STRef.write unsub unsubscribe
         u3 <- s (sampleOnRightOp e ep.event) k
