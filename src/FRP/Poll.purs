@@ -55,7 +55,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, fold, makeEvent, subscribe, makeLemmingEvent, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class (sampleOnRightOp)
@@ -371,7 +371,7 @@ animate scene render = do
 -- | Turn an ST Ref into a poll
 stRefToPoll :: STRef.STRef Global ~> Poll
 stRefToPoll r = do
-  poll \e -> makeEvent \k -> subscribe e \f -> liftST (STRef.read r) >>= k <<< f
+  poll \e -> makeLemmingEvent \s k -> s e \f -> (STRef.read r) >>= k <<< f
 
 -- | Turn a Ref into a poll
 refToPoll :: Ref.Ref ~> Poll
