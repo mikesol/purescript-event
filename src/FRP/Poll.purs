@@ -494,7 +494,7 @@ deflect a = do
   pure $ poll \e -> makeLemmingEvent \s k -> do
     st <- STRef.read started
     when (not st) do
-      unsubscribe <- Event.subscribe (sample_ a (EClass.once e))
+      unsubscribe <- s (sample_ a (EClass.once e))
         (void <<< liftST <<< flip STRef.modify ep <<< flip Array.snoc)
       void $ STRef.write true started
       void $ STRef.write unsubscribe unsub
