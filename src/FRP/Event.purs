@@ -10,14 +10,15 @@ module FRP.Event
   , mailboxed
   , makeEventE
   , mailbox'
+  , mailboxPure'
   , mailbox
+  , mailboxPure
   , merge
   , create
   , createO
   , createPure
   , createPureO
   , delay
-  , hot
   , makeEvent
   , makeEventO
   , makeLemmingEvent
@@ -404,29 +405,29 @@ foreign import insertObjHack :: forall a. STFn3 Int a (ObjHack a) Global Unit
 foreign import deleteObjHack :: forall a. STFn2 Int (ObjHack a) Global Unit
 
 memoized :: forall r a. Event a -> (Event a -> r) -> Event r
-memoized e f = makeEvent \k -> do
-  { event, push } <- create
+memoized e f = makeLemmingEvent \s k -> do
+  { event, push } <- createPure
   done <- STRef.new false
-  subscribe e \a -> do
-    o <- liftST $ STRef.read done
+  s e \a -> do
+    o <- STRef.read done
     unless o $ k (f event)
-    void $ liftST $ STRef.write true done
+    void $ STRef.write true done
     push a
 
 memoize :: forall a. Event a -> ST Global {event :: Event a, unsubscribe :: ST Global Unit }
 memoize e = do
-  { event, push } <- create
-  unsubscribe <- subscribe e push
+  { event, push } <- createPure
+  unsubscribe <- subscribePure e push
   pure { event, unsubscribe }
 
 mailboxed :: forall r a b. Ord a => Event { address :: a, payload :: b } -> ((a -> Event b) -> r) -> Event r
-mailboxed e f = makeEvent \k -> do
-  { event, push } <- mailbox
+mailboxed e f = makeLemmingEvent \s k -> do
+  { event, push } <- mailboxPure
   done <- STRef.new false
-  subscribe e \a -> do
-    o <- liftST $ STRef.read done
+  s e \a -> do
+    o <-  STRef.read done
     unless o $ k (f event)
-    void $ liftST $ STRef.write true done
+    void  $ STRef.write true done
     push a
 
 create' :: forall a. ST Global (EventIO' a)
@@ -509,6 +510,12 @@ mailbox = do
     , event
     }
 
+mailboxPure :: forall a b. Ord a => ST Global { push :: { address :: a, payload :: b } -> ST Global Unit, event :: a -> Event b }
+mailboxPure = (unsafeCoerce :: (forall a b. Ord a => ST Global { push :: { address :: a, payload :: b } -> Effect Unit, event :: a -> Event b }) -> (Ord a => ST Global { push :: { address :: a, payload :: b } -> ST Global Unit, event :: a -> Event b })) mailbox
+
+mailboxPure' :: forall a b. Ord a => ST Global { push :: STFn1 { address :: a, payload :: b } Global Unit, event :: a -> Event b }
+mailboxPure' = (unsafeCoerce :: (Ord a => ST Global { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }) -> (Ord a => ST Global { push :: STFn1 { address :: a, payload :: b } Global Unit, event :: a -> Event b })) mailbox'
+
 mailbox' :: forall a b. Ord a => ST Global { push :: EffectFn1 { address :: a, payload :: b } Unit, event :: a -> Event b }
 mailbox' = do
   r <- STRef.new Map.empty
@@ -538,16 +545,6 @@ mailbox' = do
           Nothing -> pure unit
           Just arr -> runEffectFn2 fastForeachE arr $ mkEffectFn1 \i -> runEffectFn1 i payload
     }
-
--- | Makes an event hot, meaning that it will start firing on left-bind. This means that `pure` should never be used with `hot` as it will be lost. Use this for loops, for example.
-hot
-  :: forall a
-   . Event a
-  -> ST Global { event :: Event a, unsubscribe :: ST Global Unit }
-hot e = do
-  { event, push } <- create
-  unsubscribe <- subscribe e push
-  pure { event, unsubscribe }
 
 --
 foreign import fastForeachThunk :: STFn1 (Array (ST Global Unit)) Global Unit
