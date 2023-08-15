@@ -5,7 +5,6 @@
   , "datetime"
   , "effect"
   , "either"
-  , "exists"
   , "filterable"
   , "foldable-traversable"
   , "js-timers"

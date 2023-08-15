@@ -422,7 +422,6 @@ instance (Functor event, Filterable.Compactable event, Pollable event event) => 
     let o = partitionMap (eitherBool p) xs
     { no: o.left, yes: o.right }
 
---?getRidOfDoulbeSampleWithUncurry
 sampleOnRight
   :: forall event a b
    . Pollable event event
