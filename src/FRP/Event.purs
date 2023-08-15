@@ -415,7 +415,7 @@ memoized e f = makeLemmingEvent \s k -> do
     void $ STRef.write true done
     push a
 
-memoize :: forall a. Event a -> ST Global {event :: Event a, unsubscribe :: ST Global Unit }
+memoize :: forall a. Event a -> ST Global { event :: Event a, unsubscribe :: ST Global Unit }
 memoize e = do
   { event, push } <- createPure
   unsubscribe <- subscribePure e push
@@ -426,9 +426,9 @@ mailboxed e f = makeLemmingEvent \s k -> do
   { event, push } <- mailboxPure
   done <- STRef.new false
   s e \a -> do
-    o <-  STRef.read done
+    o <- STRef.read done
     unless o $ k (f event)
-    void  $ STRef.write true done
+    void $ STRef.write true done
     push a
 
 create' :: forall a. ST Global (EventIO' a)
@@ -565,8 +565,6 @@ delay n (Event e) = Event $ mkSTFn2 \tf k -> do
     runEffectFn1 k (Left o)
 
 bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
-bindToEffect e f =  makeEvent \k -> do
-  u <- subscribe e \v -> do
-    o <- f v
-    k o
+bindToEffect e f = makeEvent \k -> do
+  u <- subscribe e \v -> f v >>= k
   pure u
