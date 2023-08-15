@@ -423,13 +423,24 @@ instance (Functor event, Filterable.Compactable event, Pollable event event) => 
     { no: o.left, yes: o.right }
 
 --?getRidOfDoulbeSampleWithUncurry
-sampleOnRight :: forall event a b. Pollable event event => IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
+sampleOnRight
+  :: forall event a b
+   . Pollable event event
+  => IsEvent event
+  => APoll event a
+  -> APoll event (a -> b)
+  -> APoll event b
 sampleOnRight a b = poll \e -> EClass.sampleOnRight (sample_ a e) (sampleBy composeFlipped b e)
 
 sampleOnLeft :: forall event a b. Pollable event event => IsEvent event => APoll event a -> APoll event (a -> b) -> APoll event b
 sampleOnLeft a b = poll \e -> EClass.sampleOnLeft (sample_ a e) (sampleBy composeFlipped b e)
 
-fix :: forall event a. Pollable event event => IsEvent event => (APoll event a -> APoll event a) -> APoll event a
+fix
+  :: forall event a
+   . Pollable event event
+  => IsEvent event
+  => (APoll event a -> APoll event a)
+  -> APoll event a
 fix f = poll \e -> (\(Tuple a ff) -> ff a) <$> EClass.fix \ee -> sampleBy Tuple (f (sham (fst <$> ee))) e
 
 once :: forall event a. Pollable event event => IsEvent event => APoll event a -> APoll event a
