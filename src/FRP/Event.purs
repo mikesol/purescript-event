@@ -5,6 +5,7 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
+  , bindToEffect
   , memoize
   , memoized
   , mailboxed
@@ -562,3 +563,10 @@ delay n (Event e) = Event $ mkSTFn2 \tf k -> do
       runEffectFn1 k (Right (Tuple t a))
     void $ liftST $ STRef.write (Just o) tid
     runEffectFn1 k (Left o)
+
+bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
+bindToEffect e f =  makeEvent \k -> do
+  u <- subscribe e \v -> do
+    o <- f v
+    k o
+  pure u
