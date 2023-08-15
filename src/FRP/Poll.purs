@@ -5,6 +5,7 @@ module FRP.Poll
   , rant
   , deflect
   , sham
+  , dredge
   , animate
   , poll
   , stToPoll
@@ -135,6 +136,11 @@ instance Plus event => Plus (APoll event) where
 -- | A poll where the answers are rigged by the nefarious `Event a`
 sham :: forall event. IsEvent event => event ~> APoll event
 sham i = poll \e -> EClass.keepLatest (map (\f -> f <$> i) e)
+
+-- (event a ->  event b) -> (Tuple (event a) b -> Tuple (event a) b)
+
+dredge :: forall a b event. Apply event => IsEvent event => (event a -> event b) -> APoll event a -> APoll event b
+dredge f (APoll ea) = APoll \eb -> eb <*> f (ea (eb $> identity))
 
 class Pollable event pollable | pollable -> event where
   -- | Sample a `Poll` on some `Event`.
