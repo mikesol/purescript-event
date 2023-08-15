@@ -566,5 +566,5 @@ delay n (Event e) = Event $ mkSTFn2 \tf k -> do
 
 bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
 bindToEffect e f = makeEvent \k -> do
-  u <- subscribe e \v -> f v >>= k
+  u <- subscribe e (f >=> k)
   pure u
