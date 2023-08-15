@@ -523,7 +523,13 @@ deflect a = do
 
 data KeepLatestOrder event a b = KeepLatestStart (APoll event a) (a -> b) | KeepLatestLast b
 
-keepLatest :: forall event a. Filterable.Filterable event => EClass.IsEvent event => Pollable event event => APoll event (APoll event a) -> APoll event a
+keepLatest
+  :: forall event a
+   . Filterable.Filterable event
+  => EClass.IsEvent event
+  => Pollable event event
+  => APoll event (APoll event a)
+  -> APoll event a
 keepLatest a = APoll \e ->
   Filterable.filterMap
     ( case _ of
