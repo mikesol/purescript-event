@@ -521,7 +521,9 @@ deflect a = do
     pure do
       u3
 
-data KeepLatestOrder event a b = KeepLatestStart (APoll event a) (a -> b) | KeepLatestLast b
+data KeepLatestOrder event a b
+  = KeepLatestStart (APoll event a) (a -> b)
+  | KeepLatestLast b
 
 keepLatest
   :: forall event a
