@@ -5,7 +5,10 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
+  , foldE
   , bindToEffect
+  , bindToST
+  , foldST
   , memoize
   , memoized
   , mailboxed
@@ -34,6 +37,7 @@ module FRP.Event
 
 import Prelude
 
+import Control.Alt ((<|>))
 import Control.Alternative (class Alt, class Plus)
 import Control.Apply (lift2)
 import Control.Monad.ST (ST)
@@ -568,3 +572,14 @@ bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
 bindToEffect e f = makeEvent \k -> do
   u <- subscribe e (f >=> k)
   pure u
+
+bindToST :: forall a b. Event a -> (a -> ST Global b) -> Event b
+bindToST e f = makeLemmingEvent \s k -> do
+  u <- s e (f >=> k)
+  pure u
+
+foldE :: forall a b. (a -> b -> Effect a) -> a -> Event b -> Event a
+foldE f b e = fix \i -> bindToEffect (sampleOnRight (i <|> (once e $> b)) ((flip f) <$> e)) identity
+
+foldST :: forall a b. (a -> b -> ST Global a) -> a -> Event b -> Event a
+foldST f b e = fix \i -> bindToST (sampleOnRight (i <|> (once e $> b)) ((flip f) <$> e)) identity
