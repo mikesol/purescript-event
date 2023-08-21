@@ -23,6 +23,7 @@ module FRP.Event
   , createPure
   , createPureO
   , delay
+  , delay_
   , makeEvent
   , makeEventO
   , makeLemmingEvent
@@ -49,13 +50,14 @@ import Data.Array (deleteBy)
 import Data.Array.ST as STArray
 import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
+import Data.Filterable (filterMap)
 import Data.Filterable as Filterable
 import Data.Foldable (class Foldable, for_)
 import Data.Foldable as M
 import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
-import Data.Tuple (Tuple(..))
+import Data.Tuple (Tuple(..), snd)
 import Effect (Effect)
 import Effect.Timer (TimeoutId, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
@@ -557,6 +559,9 @@ foreign import fastForeachE :: forall a. EffectFn2 (Array a) (EffectFn1 a Unit) 
 foreign import fastForeachOhE :: forall a. EffectFn2 (ObjHack a) (EffectFn1 a Unit) Unit
 
 --
+
+delay_ :: forall a. Int -> Event a -> Event a
+delay_ = map (map (filterMap hush >>> map snd)) delay
 
 delay :: forall a. Int -> Event a -> Event (Either TimeoutId (Tuple (Maybe TimeoutId) a))
 delay n (Event e) = Event $ mkSTFn2 \tf k -> do
