@@ -3,7 +3,6 @@ module FRP.Poll
   , Poll
   , class Pollable
   , rant
-  , rhetoricalRant
   , refize
   , deflect
   , sham
@@ -480,12 +479,11 @@ mailbox = do
   { push, event } <- Event.mailbox
   pure { poll: map sham event, push }
 
-protoRant
+rant
   :: forall a
-   . Boolean
-  -> Poll a
+   . Poll a
   -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
-protoRant tf a = do
+rant a = do
   ep <- Event.createPure
   started <- STRef.new false
   unsub <- STRef.new (pure unit)
@@ -493,28 +491,14 @@ protoRant tf a = do
     { unsubscribe: join (STRef.read unsub)
     , poll: poll \e -> makeLemmingEvent \s k -> do
         st <- STRef.read started
-        let
-          aa = when (not st) do
-            unsubscribe <- s (sample_ a e) ep.push
-            void $ STRef.write true started
-            void $ flip STRef.write unsub unsubscribe
-        let bb = s (sampleOnRightOp e ep.event) k
-        u3 <- if tf then aa *> bb else bb <* aa
+        when (not st) do
+          unsubscribe <- s (sample_ a (EClass.once e)) ep.push
+          void $ STRef.write true started
+          void $ flip STRef.write unsub unsubscribe
+        u3 <- s (sampleOnRightOp e ep.event) k
         pure do
           u3
     }
-
-rant
-  :: forall a
-   . Poll a
-  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
-rant = protoRant true
-
-rhetoricalRant
-  :: forall a
-   . Poll a
-  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
-rhetoricalRant = protoRant false
 
 deflect
   :: forall a

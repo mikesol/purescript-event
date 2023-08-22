@@ -10,8 +10,8 @@ import Control.Monad.ST.Ref as STRef
 import Control.Plus (empty)
 import Data.Array (length, replicate, (..))
 import Data.Array as Array
-import Data.Filterable (class Filterable, filter)
-import Data.Foldable (for_, sequence_)
+import Data.Filterable (filter)
+import Data.Foldable (sequence_)
 import Data.JSDate (getTime, now)
 import Data.Profunctor (lcmap)
 import Data.Traversable (foldr, for_, sequence)
@@ -22,11 +22,11 @@ import Effect.Aff (Milliseconds(..), delay, launchAff_)
 import Effect.Class (liftEffect)
 import Effect.Ref as Ref
 import Effect.Unsafe (unsafePerformEffect)
-import FRP.Event (mailbox, mailboxed, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
+import FRP.Event (mailboxed, makeEvent, makeLemmingEvent, memoized, merge, subscribe)
 import FRP.Event as Event
 import FRP.Event.Class (fold, once, keepLatest, sampleOnRight)
 import FRP.Event.Time (debounce)
-import FRP.Poll (deflect, derivative', fixB, gate, integral', poll, rant, rhetoricalRant, sample, sample_, stRefToPoll)
+import FRP.Poll (deflect, derivative', fixB, gate, integral', poll, rant, sample, sample_, stRefToPoll)
 import FRP.Poll as Poll
 import Test.Spec (describe, it)
 import Test.Spec.Assertions (shouldEqual)
@@ -485,25 +485,6 @@ main = do
                 push unit
                 o <- Ref.read rf
                 o `shouldEqual` []
-                liftST $ unsub2
-                Ref.write [] rf
-          it "should keep purity when on a rhetoricalRant" do
-            { event, push } <- liftST $ Event.create
-            rf <- liftEffect $ Ref.new []
-            unsub <- liftST $ Event.subscribe (sample_ (pure 42) event) (\i -> Ref.modify_ (Array.cons i) rf)
-            liftEffect do
-              push unit
-              o <- Ref.read rf
-              o `shouldEqual` [ 42 ]
-              liftST $ unsub
-              Ref.write [] rf
-            ranting <- liftST $ rhetoricalRant (pure 42)
-            for_ (0 .. 1) \oo -> do
-              unsub2 <- liftST $ Event.subscribe (sample_ ranting.poll event) (\i -> Ref.modify_ (Array.cons i) rf)
-              liftEffect do
-                push unit
-                o <- Ref.read rf
-                o `shouldEqual` (if oo == zero then [ 42 ] else [])
                 liftST $ unsub2
                 Ref.write [] rf
           it "should mix together polling and purity" do
