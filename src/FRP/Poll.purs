@@ -3,6 +3,7 @@ module FRP.Poll
   , Poll
   , class Pollable
   , rant
+  , rhetoricalRant
   , refize
   , deflect
   , sham
@@ -37,7 +38,7 @@ module FRP.Poll
 
 import Prelude
 
-import Control.Alt (class Alt, alt, (<|>))
+import Control.Alt (class Alt, alt)
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
@@ -57,7 +58,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, bindToST, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class (sampleOnRightOp)
@@ -479,11 +480,12 @@ mailbox = do
   { push, event } <- Event.mailbox
   pure { poll: map sham event, push }
 
-rant
+protoRant
   :: forall a
-   . Poll a
+   . Boolean
+  -> Poll a
   -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
-rant a = do
+protoRant tf a = do
   ep <- Event.createPure
   started <- STRef.new false
   unsub <- STRef.new (pure unit)
@@ -491,15 +493,28 @@ rant a = do
     { unsubscribe: join (STRef.read unsub)
     , poll: poll \e -> makeLemmingEvent \s k -> do
         st <- STRef.read started
-        when (not st) do
-          unsubscribe <- s (sample_ a (EClass.once e)) ep.push
-          void $ STRef.write true started
-          void $ flip STRef.write unsub unsubscribe
-        u3 <- s (sampleOnRightOp e ep.event) k
+        let
+          aa = when (not st) do
+            unsubscribe <- s (sample_ a (EClass.once e)) ep.push
+            void $ STRef.write true started
+            void $ flip STRef.write unsub unsubscribe
+        let bb = s (sampleOnRightOp e ep.event) k
+        u3 <- if tf then aa *> bb else bb <* aa
         pure do
           u3
     }
 
+rant
+  :: forall a
+   . Poll a
+  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
+rant = protoRant true
+
+rhetoricalRant
+  :: forall a
+   . Poll a
+  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
+rhetoricalRant = protoRant false
 
 deflect
   :: forall a
