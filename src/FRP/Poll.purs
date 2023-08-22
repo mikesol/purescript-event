@@ -3,6 +3,7 @@ module FRP.Poll
   , Poll
   , class Pollable
   , rant
+  , hotRant
   , refize
   , deflect
   , sham
@@ -37,7 +38,7 @@ module FRP.Poll
 
 import Prelude
 
-import Control.Alt (class Alt, alt)
+import Control.Alt (class Alt, alt, (<|>))
 import Control.Apply (lift2)
 import Control.Monad.ST.Class (liftST)
 import Control.Monad.ST.Global (Global)
@@ -57,7 +58,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
+import FRP.Event (class IsEvent, Event, bindToST, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class (sampleOnRightOp)
@@ -496,6 +497,28 @@ rant a = do
           void $ STRef.write true started
           void $ flip STRef.write unsub unsubscribe
         u3 <- s (sampleOnRightOp e ep.event) k
+        pure do
+          u3
+    }
+
+hotRant
+  :: forall a
+   . Poll a
+  -> ST Global { poll :: Poll a, unsubscribe :: ST Global Unit }
+hotRant a = do
+  r <- STRef.new Nothing
+  ep <- Event.createPure
+  started <- STRef.new false
+  unsub <- STRef.new (pure unit)
+  pure
+    { unsubscribe: join (STRef.read unsub)
+    , poll: filterMap identity $ poll \e -> makeLemmingEvent \s k -> do
+        st <- STRef.read started
+        when (not st) do
+          unsubscribe <- s (sample_ a (EClass.once e)) $ (void <<< flip STRef.write r <<< Just) *> ep.push
+          void $ STRef.write true started
+          void $ flip STRef.write unsub unsubscribe
+        u3 <- s (EClass.once (bindToST e \ff -> ff <$> STRef.read r) <|> sampleOnRightOp e (map Just ep.event)) k
         pure do
           u3
     }
