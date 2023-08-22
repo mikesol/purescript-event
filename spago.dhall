@@ -3,6 +3,7 @@
   [ "arrays"
   , "control"
   , "datetime"
+  , "debug"
   , "effect"
   , "either"
   , "filterable"
