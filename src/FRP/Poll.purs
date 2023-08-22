@@ -495,7 +495,7 @@ protoRant tf a = do
         st <- STRef.read started
         let
           aa = when (not st) do
-            unsubscribe <- s (sample_ a (EClass.once e)) ep.push
+            unsubscribe <- s (sample_ a e) ep.push
             void $ STRef.write true started
             void $ flip STRef.write unsub unsubscribe
         let bb = s (sampleOnRightOp e ep.event) k
