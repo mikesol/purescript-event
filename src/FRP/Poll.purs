@@ -3,6 +3,7 @@ module FRP.Poll
   , Poll
   , class Pollable
   , rant
+  , refize
   , deflect
   , sham
   , dredge
@@ -56,7 +57,7 @@ import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), fst)
 import Effect (Effect)
 import Effect.Ref as Ref
-import FRP.Event (class IsEvent, Event, fold, makeEvent, subscribe, makeLemmingEvent, withLast)
+import FRP.Event (class IsEvent, Event, fold, makeEvent, makeLemmingEvent, subscribe, withLast)
 import FRP.Event as Event
 import FRP.Event.AnimationFrame (animationFrame)
 import FRP.Event.Class (sampleOnRightOp)
@@ -543,3 +544,10 @@ keepLatest a = APoll \e ->
         KeepLatestStart b ff -> Just (sampleBy (\bb _ -> KeepLatestLast (ff bb)) b (EClass.once ie))
         _ -> empty
     ]
+
+refize :: forall a. a -> Poll a -> Poll (Tuple (STRef.STRef Global a) a)
+refize a p = poll \e -> makeLemmingEvent \s k -> do
+  r <- STRef.new a
+  s (sampleBy Tuple p e) \(Tuple p' e') -> do
+    void $ STRef.write p' r
+    k $ e' (Tuple r p')
