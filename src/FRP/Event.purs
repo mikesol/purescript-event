@@ -5,36 +5,39 @@ module FRP.Event
   , PureEventIO
   , PureEventIO'
   , Subscriber(..)
-  , foldE
   , bindToEffect
   , bindToST
-  , foldST
-  , memoize
-  , memoized
-  , mailboxed
-  , makeEventE
-  , mailbox'
-  , mailboxPure'
-  , mailbox
-  , mailboxPure
-  , merge
   , create
   , createO
   , createPure
   , createPureO
   , delay
   , delay_
+  , foldE
+  , foldST
+  , mailbox
+  , mailbox'
+  , mailboxPure
+  , mailboxPure'
+  , mailboxed
   , makeEvent
+  , makeEventE
   , makeEventO
   , makeLemmingEvent
   , makeLemmingEventO
   , makePureEvent
+  , memoize
+  , memoized
+  , merge
   , module Class
+  , postThunk
   , subscribe
   , subscribeO
   , subscribePure
   , subscribePureO
-  ) where
+  , thankTheDriver
+  )
+  where
 
 import Prelude
 
@@ -576,6 +579,16 @@ delay n (Event e) = Event $ mkSTFn2 \tf k -> do
 bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
 bindToEffect e f = makeEvent \k -> do
   u <- subscribe e (f >=> k)
+  pure u
+
+postThunk :: Effect Unit -> Event ~> Event
+postThunk t e = makeEvent \k -> do
+  u <- subscribe e \i -> k i *> t
+  pure u
+
+thankTheDriver :: forall a. Event (Tuple (Effect Unit) a) -> Event a
+thankTheDriver e = makeEvent \k -> do
+  u <- subscribe e \(Tuple x i) -> k i *> x
   pure u
 
 bindToST :: forall a b. Event a -> (a -> ST Global b) -> Event b
