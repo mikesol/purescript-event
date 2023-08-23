@@ -30,7 +30,6 @@ module FRP.Event
   , memoized
   , merge
   , module Class
-  , postThunk
   , subscribe
   , subscribeO
   , subscribePure
@@ -579,11 +578,6 @@ delay n (Event e) = Event $ mkSTFn2 \tf k -> do
 bindToEffect :: forall a b. Event a -> (a -> Effect b) -> Event b
 bindToEffect e f = makeEvent \k -> do
   u <- subscribe e (f >=> k)
-  pure u
-
-postThunk :: Effect Unit -> Event ~> Event
-postThunk t e = makeEvent \k -> do
-  u <- subscribe e \i -> k i *> t
   pure u
 
 thankTheDriver :: forall a. Event (Tuple (Effect Unit) a) -> Event a
