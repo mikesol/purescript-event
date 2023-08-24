@@ -29,6 +29,7 @@ module FRP.Event
   , memoize
   , memoized
   , merge
+  , mergeMap
   , module Class
   , subscribe
   , subscribeO
@@ -140,6 +141,19 @@ merge :: forall f a. Foldable f => f (Event a) → Event a
 merge f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
   f # M.foldMap \(Event i) -> do
+    u <- runSTFn2 i tf k
+    void $ liftST $ STArray.push u a
+  pure do
+    o <- liftST (STArray.freeze a)
+    runSTFn1 fastForeachThunk o
+
+-- | Merge together several events and map on the event. This has the same functionality
+-- | as `oneOf`, but it is faster and less prone to stack explosions.
+mergeMap :: forall f a b. Foldable f => (a -> Event b) -> f a → Event b
+mergeMap f0 f = Event $ mkSTFn2 \tf k -> do
+  a <- STArray.new
+  f # M.foldMap \x-> do
+    let (Event i) = f0 x
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
   pure do

@@ -1,39 +1,42 @@
 module FRP.Poll
   ( APoll
   , Poll
-  , class Pollable
-  , rant
-  , refize
-  , deflect
-  , sham
-  , dredge
   , animate
-  , poll
-  , stToPoll
+  , class Pollable
+  , create
+  , createPure
+  , deflect
   , derivative
   , derivative'
+  , dredge
   , effectToPoll
   , fixB
   , gate
   , gateBy
   , integral
   , integral'
+  , mailbox
+  , merge
+  , mergeMap
+  , poll
+  , rant
   , refToPoll
+  , refize
   , sample
   , sampleBy
   , sample_
+  , sham
   , solve
   , solve'
   , solve2
   , solve2'
   , stRefToPoll
+  , stToPoll
   , step
   , switcher
   , unfold
-  , create
-  , createPure
-  , mailbox
-  ) where
+  )
+  where
 
 import Prelude
 
@@ -133,6 +136,14 @@ instance Alt event => Alt (APoll event) where
 
 instance Plus event => Plus (APoll event) where
   empty = APoll \_ -> empty
+
+-- | Merge together several polls. This has the same functionality
+-- | as `oneOf`, but it is faster and less prone to stack explosions.
+merge :: forall a. Array (Poll a) → Poll a
+merge a = APoll \e -> Event.mergeMap (flip sample e) a
+
+mergeMap :: forall a b. (a -> Poll b) -> Array a → Poll b
+mergeMap f a = APoll \e -> Event.mergeMap (flip sample e <<< f) a
 
 -- | A poll where the answers are rigged by the nefarious `Event a`
 sham :: forall event. IsEvent event => event ~> APoll event
