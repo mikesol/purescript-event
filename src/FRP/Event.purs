@@ -56,7 +56,6 @@ import Data.Either (Either(..), either, hush)
 import Data.Filterable (filterMap)
 import Data.Filterable as Filterable
 import Data.Foldable (class Foldable, for_)
-import Data.Foldable as M
 import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
@@ -140,7 +139,7 @@ instance altEvent :: Alt Event where
 merge :: forall f a. Foldable f => f (Event a) → Event a
 merge f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
-  f # M.foldMap \(Event i) -> do
+  for_ f \(Event i) -> do
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
   pure do
@@ -152,7 +151,7 @@ merge f = Event $ mkSTFn2 \tf k -> do
 mergeMap :: forall f a b. Foldable f => (a -> Event b) -> f a → Event b
 mergeMap f0 f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
-  f # M.foldMap \x-> do
+  for_ f \x-> do
     let (Event i) = f0 x
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
