@@ -35,8 +35,7 @@ module FRP.Poll
   , step
   , switcher
   , unfold
-  )
-  where
+  ) where
 
 import Prelude
 
@@ -149,9 +148,8 @@ mergeMap f a = APoll \e -> Event.mergeMap (flip sample e <<< f) a
 sham :: forall event. IsEvent event => event ~> APoll event
 sham i = poll \e -> EClass.keepLatest (map (\f -> f <$> i) e)
 
--- (event a ->  event b) -> (Tuple (event a) b -> Tuple (event a) b)
-
-dredge :: forall a b event. Apply event => IsEvent event => (event a -> event b) -> APoll event a -> APoll event b
+-- | Turn a function over events into a function over polls.
+dredge :: forall a b event. Apply event => (event a -> event b) -> APoll event a -> APoll event b
 dredge f (APoll ea) = APoll \eb -> eb <*> f (ea (eb $> identity))
 
 class Pollable event pollable | pollable -> event where

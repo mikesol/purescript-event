@@ -49,10 +49,11 @@ disposeKeyboard :: Keyboard -> Effect Unit
 disposeKeyboard (Keyboard { dispose }) = dispose
 
 -- | Create an `Event` which fires when a key is pressed
-down :: Effect
-                             { event :: Event String
-                             , unsubscribe :: Effect Unit
-                             }
+down
+  :: Effect
+       { event :: Event String
+       , unsubscribe :: Effect Unit
+       }
 down = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
@@ -62,10 +63,11 @@ down = makeEventE \k -> do
   pure (removeEventListener (wrap "keydown") keyDownListener false target)
 
 -- | Create an `Event` which fires when a key is released
-up :: Effect
-                             { event :: Event String
-                             , unsubscribe :: Effect Unit
-                             }
+up
+  :: Effect
+       { event :: Event String
+       , unsubscribe :: Effect Unit
+       }
 up = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyUpListener <- eventListener \e -> do

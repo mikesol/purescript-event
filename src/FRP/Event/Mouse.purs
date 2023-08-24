@@ -58,9 +58,11 @@ disposeMouse :: Mouse -> Effect Unit
 disposeMouse (Mouse { dispose }) = dispose
 
 -- | Create an `Event` which fires when a mouse button is pressed
-down :: Effect { event :: Event Int
-                           , unsubscribe :: Effect Unit
-                           }
+down
+  :: Effect
+       { event :: Event Int
+       , unsubscribe :: Effect Unit
+       }
 down = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseDownListener <- eventListener \e -> do
@@ -70,9 +72,11 @@ down = makeEventE \k -> do
   pure (removeEventListener (wrap "mousedown") mouseDownListener false target)
 
 -- | Create an `Event` which fires when a mouse button is released
-up :: Effect { event :: Event Int
-                           , unsubscribe :: Effect Unit
-                           }
+up
+  :: Effect
+       { event :: Event Int
+       , unsubscribe :: Effect Unit
+       }
 up = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseUpListener <- eventListener \e -> do

@@ -11,10 +11,11 @@ import Web.HTML (window)
 import Web.HTML.Window (requestAnimationFrame)
 
 -- | Create an event which fires every frame (using `requestAnimationFrame`).
-animationFrame :: Effect
-                             { event :: Event Unit
-                             , unsubscribe :: Effect Unit
-                             }
+animationFrame
+  :: Effect
+       { event :: Event Unit
+       , unsubscribe :: Effect Unit
+       }
 animationFrame = makeEventE \k -> do
   w <- window
   cancelled <- Ref.new false

@@ -36,8 +36,7 @@ module FRP.Event
   , subscribePure
   , subscribePureO
   , thankTheDriver
-  )
-  where
+  ) where
 
 import Prelude
 
@@ -151,7 +150,7 @@ merge f = Event $ mkSTFn2 \tf k -> do
 mergeMap :: forall a b. (a -> Event b) -> Array a → Event b
 mergeMap f0 f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
-  ((unsafeCoerce :: (Array a -> (a -> Effect Unit) -> Effect Unit) -> Array a -> (a -> ST Global Unit) -> ST Global Unit) foreachE) f \x-> do
+  ((unsafeCoerce :: (Array a -> (a -> Effect Unit) -> Effect Unit) -> Array a -> (a -> ST Global Unit) -> ST Global Unit) foreachE) f \x -> do
     let (Event i) = f0 x
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
