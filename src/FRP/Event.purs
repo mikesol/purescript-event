@@ -55,12 +55,12 @@ import Data.Compactable (class Compactable)
 import Data.Either (Either(..), either, hush)
 import Data.Filterable (filterMap)
 import Data.Filterable as Filterable
-import Data.Foldable (class Foldable, for_)
+import Data.Foldable (for_)
 import Data.FunctorWithIndex (class FunctorWithIndex)
 import Data.Map as Map
 import Data.Maybe (Maybe(..))
 import Data.Tuple (Tuple(..), snd)
-import Effect (Effect)
+import Effect (Effect, foreachE)
 import Effect.Timer (TimeoutId, setTimeout)
 import Effect.Uncurried (EffectFn1, EffectFn2, mkEffectFn1, runEffectFn1, runEffectFn2)
 import FRP.Event.Class (class Filterable, class IsEvent, count, filterMap, fix, fold, folded, gate, gateBy, keepLatest, mapAccum, sampleOnRight, sampleOnRight_, withLast) as Class
@@ -136,10 +136,10 @@ instance altEvent :: Alt Event where
 
 -- | Merge together several events. This has the same functionality
 -- | as `oneOf`, but it is faster and less prone to stack explosions.
-merge :: forall f a. Foldable f => f (Event a) → Event a
+merge :: forall a. Array (Event a) → Event a
 merge f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
-  for_ f \(Event i) -> do
+  ((unsafeCoerce :: (Array (Event a) -> ((Event a) -> Effect Unit) -> Effect Unit) -> Array (Event a) -> ((Event a) -> ST Global Unit) -> ST Global Unit) foreachE) f \(Event i) -> do
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
   pure do
@@ -148,10 +148,10 @@ merge f = Event $ mkSTFn2 \tf k -> do
 
 -- | Merge together several events and map on the event. This has the same functionality
 -- | as `oneOf`, but it is faster and less prone to stack explosions.
-mergeMap :: forall f a b. Foldable f => (a -> Event b) -> f a → Event b
+mergeMap :: forall a b. (a -> Event b) -> Array a → Event b
 mergeMap f0 f = Event $ mkSTFn2 \tf k -> do
   a <- STArray.new
-  for_ f \x-> do
+  ((unsafeCoerce :: (Array a -> (a -> Effect Unit) -> Effect Unit) -> Array a -> (a -> ST Global Unit) -> ST Global Unit) foreachE) f \x-> do
     let (Event i) = f0 x
     u <- runSTFn2 i tf k
     void $ liftST $ STArray.push u a
