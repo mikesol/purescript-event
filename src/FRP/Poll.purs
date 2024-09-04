@@ -11,7 +11,7 @@ module FRP.Poll
   , derivative
   , derivative'
   , dredge
-  , fixB
+  , fixWithInitial
   , gate
   , gateBy
   , integral
@@ -311,8 +311,8 @@ derivative'
 derivative' = derivative (_ $ identity)
 
 -- | Compute a fixed point
-fixB :: forall a. a -> (Poll a -> Poll a) -> Poll a
-fixB a f =
+fixWithInitial :: forall a. a -> (Poll a -> Poll a) -> Poll a
+fixWithInitial a f =
   poll \s ->
     EClass.sampleOnRight
       ( EClass.fix \event ->
@@ -345,7 +345,7 @@ solve
   -> Poll t
   -> (Poll a -> Poll a)
   -> Poll a
-solve g a0 t f = fixB a0 \b -> integral g a0 t (f b)
+solve g a0 t f = fixWithInitial a0 \b -> integral g a0 t (f b)
 
 -- | Solve a first order differential equation.
 -- |
@@ -384,9 +384,9 @@ solve2
   -> (Poll a -> Poll a -> Poll a)
   -> Poll a
 solve2 g a0 da0 t f =
-  fixB a0 \b ->
+  fixWithInitial a0 \b ->
     integral g a0 t
-      ( fixB da0 \db ->
+      ( fixWithInitial da0 \db ->
           integral g da0 t (f b db)
       )
 

@@ -10,7 +10,7 @@ module FRP.Poll.Unoptimized
   , derivative
   , derivative'
   , dredge
-  , fixB
+  , fixWithInitial
   , gate
   , gateBy
   , integral
@@ -441,7 +441,7 @@ solve
   -> Poll t
   -> (Poll a -> Poll a)
   -> Poll a
-solve g a0 pollT f = fixB a0 \pollA -> integral g a0 pollT (f pollA)
+solve g a0 pollT f = fixWithInitial a0 \pollA -> integral g a0 pollT (f pollA)
 
 -- | Solve a first order differential equation.
 -- |
@@ -480,9 +480,9 @@ solve2
   -> (Poll a -> Poll a -> Poll a)
   -> Poll a
 solve2 g a0 da0 pollT f =
-  fixB a0 \pollA ->
+  fixWithInitial a0 \pollA ->
     integral g a0 pollT
-      ( fixB da0 \pollDa ->
+      ( fixWithInitial da0 \pollDa ->
           integral g da0 pollT (f pollA pollDa)
       )
 
@@ -599,25 +599,25 @@ sampleOnLeft pollA pollAB = poll \e -> EClass.sampleOnLeft (sample_ pollA e) (sa
 
 -- | Compute a fixed point
 -- |
--- | # fixB + identity
+-- | # fixWithInitial + identity
 -- |
 -- | ```
 -- | push to `surveymonger`                                    | C1->1
 -- |                                                           | C2->2
 -- |                                                           | C3->3
--- | get in `sample (fixB C1 identity) surveymonger` | 1
+-- | get in `sample (fixWithInitial C1 identity) surveymonger` | 1
 -- | ```
 -- |
--- | # fixB + pure
+-- | # fixWithInitial + pure
 -- |
 -- | ```
 -- | push to `surveymonger`                                                 | C1->1
 -- |                                                                        | C2->2
 -- |                                                                        | C3->3
--- | get in `sample (fixB C1 (\i -> i <|> pure C2)) surveymonger` | 2
+-- | get in `sample (fixWithInitial C1 (\i -> i <|> pure C2)) surveymonger` | 2
 -- | ```
 -- |
--- | # fixB + step
+-- | # fixWithInitial + step
 -- |
 -- | ```
 -- | push to `cowSupplier`                                                              | C0                 C3          C4
@@ -625,11 +625,11 @@ sampleOnLeft pollA pollAB = poll \e -> EClass.sampleOnLeft (sample_ pollA e) (sa
 -- |                                                                                    |                        C2->2        C2->12
 -- |                                                                                    |                        C3->3        C3->13
 -- |                                                                                    |                        C4->4        C4->14
--- | get in `sample (fixB C1 (\i -> i <|> step C2 cowSupplier)) surveymonger` | _     (subscribe)  _   2       _    14
--- | get in `sample (fixB C1 (\i -> step C2 cowSupplier <|> i)) surveymonger` | _     (subscribe)  _   1       _    14
+-- | get in `sample (fixWithInitial C1 (\i -> i <|> step C2 cowSupplier)) surveymonger` | _     (subscribe)  _   2       _    14
+-- | get in `sample (fixWithInitial C1 (\i -> step C2 cowSupplier <|> i)) surveymonger` | _     (subscribe)  _   1       _    14
 -- | ```
 -- |
--- | # fixB + sham
+-- | # fixWithInitial + sham
 -- |
 -- | ```
 -- | push to `cowSupplier`                                                              | C0                C2         C3
@@ -638,11 +638,11 @@ sampleOnLeft pollA pollAB = poll \e -> EClass.sampleOnLeft (sample_ pollA e) (sa
 -- |                                                                                    |                       C2->2       C2->12
 -- |                                                                                    |                       C3->3       C3->13
 -- |                                                                                    |                       C4->4       C4->14
--- | get in `sample (fixB C1 (\i -> i <|> sham cowSupplier)) surveymonger`    | _     (subscribe) _   1       _   13
--- | get in `sample (fixB C1 (\i -> sham cowSupplier <|> i)) surveymonger`    | _     (subscribe) _   1       _   13
+-- | get in `sample (fixWithInitial C1 (\i -> i <|> sham cowSupplier)) surveymonger`    | _     (subscribe) _   1       _   13
+-- | get in `sample (fixWithInitial C1 (\i -> sham cowSupplier <|> i)) surveymonger`    | _     (subscribe) _   1       _   13
 -- | ```
-fixB :: forall event a. Pollable event event => IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
-fixB a f =
+fixWithInitial :: forall event a. Pollable event event => IsEvent event => a -> (APoll event a -> APoll event a) -> APoll event a
+fixWithInitial a f =
   poll \s ->
     EClass.sampleOnRight
       ( EClass.fix \event ->

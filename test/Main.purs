@@ -791,7 +791,7 @@ main = do
           it "should have a fixed point with an initial value" $ liftEffect do
             { event, push } <- liftST $ Event.create
             rf <- liftEffect $ Ref.new []
-            unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.fixB 0 (map (add 1))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+            unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.fixWithInitial 0 (map (add 1))) event) (\i -> Ref.modify_ (Array.cons i) rf)
             liftEffect do
               push unit
               push unit
@@ -846,7 +846,7 @@ main = do
             it "should give some sane approximation" $ liftEffect do
               { event, push } <- liftST $ Event.create
               rf <- liftEffect $ Ref.new []
-              unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.derivative' (UnoptimizedPoll.fixB 1.0 (map (add 1.0))) (UnoptimizedPoll.fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.derivative' (UnoptimizedPoll.fixWithInitial 1.0 (map (add 1.0))) (UnoptimizedPoll.fixWithInitial 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
               liftEffect do
                 push unit
                 push unit
@@ -860,7 +860,7 @@ main = do
             it "should give some sane approximation" $ liftEffect do
               { event, push } <- liftST $ Event.create
               rf <- liftEffect $ Ref.new []
-              unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.integral' 42.0 (UnoptimizedPoll.fixB 1.0 (map (add 1.0))) (UnoptimizedPoll.fixB 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
+              unsub <- Event.subscribe (UnoptimizedPoll.sample_ (UnoptimizedPoll.integral' 42.0 (UnoptimizedPoll.fixWithInitial 1.0 (map (add 1.0))) (UnoptimizedPoll.fixWithInitial 1.0 (map (mul 3.0)))) event) (\i -> Ref.modify_ (Array.cons i) rf)
               liftEffect do
                 push unit
                 push unit
