@@ -11,12 +11,10 @@ import Prelude
 
 import Data.Foldable (traverse_)
 import Data.Newtype (wrap)
-import Data.Op (Op(..))
 import Data.Set as Set
 import Effect (Effect)
 import Effect.Ref as Ref
 import FRP.Event (Event, makeEventE)
-import Safe.Coerce (coerce)
 import Web.Event.EventTarget (addEventListener, eventListener, removeEventListener)
 import Web.HTML (window)
 import Web.HTML.Window (toEventTarget)
@@ -53,7 +51,7 @@ disposeKeyboard (Keyboard { dispose }) = dispose
 -- | Create an `Event` which fires when a key is pressed
 down'
   :: forall a
-   . (Op (Effect Unit) a -> Op (Effect Unit) String)
+   . ((a -> Effect Unit) -> String -> Effect Unit)
   -> Effect
        { event :: Event a
        , unsubscribe :: Effect Unit
@@ -62,7 +60,7 @@ down' f = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyDownListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      (coerce :: _ -> _ -> _ -> _ Unit) f k (code ke)
+      f k (code ke)
   addEventListener (wrap "keydown") keyDownListener false target
   pure (removeEventListener (wrap "keydown") keyDownListener false target)
 
@@ -71,12 +69,12 @@ down
        { event :: Event String
        , unsubscribe :: Effect Unit
        }
-down = down' identity
+down = down' (($))
 
 -- | Create an `Event` which fires when a key is released
 up'
   :: forall a
-   . (Op (Effect Unit) a -> Op (Effect Unit) String)
+   . ((a -> Effect Unit) -> String -> Effect Unit)
   -> Effect
        { event :: Event a
        , unsubscribe :: Effect Unit
@@ -85,7 +83,7 @@ up' f = makeEventE \k -> do
   target <- toEventTarget <$> window
   keyUpListener <- eventListener \e -> do
     fromEvent e # traverse_ \ke ->
-      (coerce :: _ -> _ -> _ -> _ Unit) f k (code ke)
+      f k (code ke)
   addEventListener (wrap "keyup") keyUpListener false target
   pure (removeEventListener (wrap "keyup") keyUpListener false target)
 
@@ -94,15 +92,16 @@ up
        { event :: Event String
        , unsubscribe :: Effect Unit
        }
-up = up' identity
+up = up' (($))
 
 -- | Create an event which also returns the currently pressed keys.
 withKeys
   :: forall a
    . Keyboard
-  -> Op (Effect Unit) { value :: a, keys :: Set.Set String }
-  -> Op (Effect Unit) a
-withKeys (Keyboard { keys }) = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
+  -> ({ value :: a, keys :: Set.Set String } -> Effect Unit)
+  -> a
+  -> Effect Unit
+withKeys (Keyboard { keys }) = go
   where
   go f value = do
     keysValue <- Ref.read keys

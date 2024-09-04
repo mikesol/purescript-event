@@ -16,10 +16,10 @@ module FRP.Event.Mouse
 
 import Prelude
 
+import Ansi.Codes (EscapeCode(..))
 import Data.Foldable (traverse_)
 import Data.Maybe (Maybe(..))
 import Data.Newtype (wrap)
-import Data.Op (Op(..))
 import Data.Set as Set
 import Effect (Effect)
 import Effect.Ref as Ref
@@ -77,7 +77,7 @@ disposeMouse (Mouse { dispose }) = dispose
 -- | Create an `Event` which fires when a mouse button is pressed
 down'
   :: forall a
-   . (Op (Effect Unit) a -> Op (Effect Unit) Int)
+   . ((a -> Effect Unit) -> Int -> Effect Unit)
   -> Effect
        { event :: Event a
        , unsubscribe :: Effect Unit
@@ -85,8 +85,7 @@ down'
 down' f = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseDownListener <- eventListener \e -> do
-    fromEvent e # traverse_ \me ->
-      (coerce :: _ -> _ -> _ -> _ Unit) f k (button me)
+    fromEvent e # traverse_ \me -> f k (button me)
   addEventListener (wrap "mousedown") mouseDownListener false target
   pure (removeEventListener (wrap "mousedown") mouseDownListener false target)
 
@@ -95,12 +94,12 @@ down
        { event :: Event Int
        , unsubscribe :: Effect Unit
        }
-down = down' identity
+down = down' (($))
 
 -- | Create an `Event` which fires when a mouse button is released
 up'
   :: forall a
-   . (Op (Effect Unit) a -> Op (Effect Unit) Int)
+   . ((a -> Effect Unit) -> Int -> Effect Unit)
   -> Effect
        { event :: Event a
        , unsubscribe :: Effect Unit
@@ -108,8 +107,7 @@ up'
 up' f = makeEventE \k -> do
   target <- toEventTarget <$> window
   mouseUpListener <- eventListener \e -> do
-    fromEvent e # traverse_ \me ->
-      (coerce :: _ -> _ -> _ -> _ Unit) f k (button me)
+    fromEvent e # traverse_ \me -> f k (button me)
   addEventListener (wrap "mouseup") mouseUpListener false target
   pure (removeEventListener (wrap "mouseup") mouseUpListener false target)
 
@@ -118,27 +116,28 @@ up
        { event :: Event Int
        , unsubscribe :: Effect Unit
        }
-up = up' identity
+up = up' (($))
 
 -- | Create an event which also returns the current mouse position.
 withPosition
   :: forall a
    . Mouse
-  -> Op (Effect Unit) { value :: a, pos :: Maybe { x :: Int, y :: Int } }
-  -> Op (Effect Unit) a
-withPosition (Mouse { position }) = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
+  -> ({ value :: a, pos :: Maybe { x :: Int, y :: Int } } -> Effect Unit)
+  -> a
+  -> Effect Unit
+withPosition (Mouse { position }) = go
   where
   go f value = do
     pos <- Ref.read position
     f { value, pos }
 
--- | Create an event which also returns the current mouse buttons.
 withButtons
   :: forall a
    . Mouse
-  -> Op (Effect Unit) { value :: a, buttons :: Set.Set Int }
-  -> Op (Effect Unit) a
-withButtons (Mouse { buttons }) = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
+  -> ({ value :: a, buttons :: Set.Set Int } -> Effect Unit)
+  -> a
+  -> Effect Unit
+withButtons (Mouse { buttons }) = go
   where
   go f value = do
     buttonsValue <- Ref.read buttons

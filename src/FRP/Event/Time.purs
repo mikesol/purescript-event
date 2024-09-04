@@ -1,10 +1,10 @@
 module FRP.Event.Time
-  ( withTime
+  ( interval
+  , interval'
+  , throttle
+  , withTime
   , withDelay
   , withDelay'
-  , throttle
-  , interval'
-  , interval
   ) where
 
 import Prelude
@@ -14,7 +14,6 @@ import Data.DateTime.Instant (Instant, unInstant)
 import Data.Either (Either(..))
 import Data.Maybe (Maybe(..))
 import Data.Newtype (unwrap)
-import Data.Op (Op(..))
 import Data.Time.Duration (Milliseconds)
 import Data.Tuple (Tuple(..))
 import Effect (Effect)
@@ -23,19 +22,20 @@ import Effect.Aff.AVar as Avar
 import Effect.Class (liftEffect)
 import Effect.Now (now)
 import Effect.Timer (TimeoutId, clearInterval, setInterval, setTimeout)
-import FRP.Event (Event, makeEventE, mapAccum)
-import Safe.Coerce (coerce)
+import FRP.Event
 
 -- | Create an event which reports the current time in milliseconds since the epoch.
-withTime :: forall a. Op (Effect Unit) { value :: a, time :: Instant } -> Op (Effect Unit) a
-withTime = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
+-- | Since all You will see are hot, it's not possible to write function `addTime :: Event a -> Event { value a, time :: Instant }`
+-- | Instead, use this function with `push`, e.g. `withTime push 1`
+withTime :: forall a. ({ value :: a, time :: Instant } -> Effect Unit) -> a -> Effect Unit
+withTime = go
   where
   go f value = do
     time <- now
     f { time, value }
 
-withDelay' :: forall a. (a -> Int) -> Op (Effect Unit) (Either TimeoutId (Tuple TimeoutId a)) -> Op (Effect Unit) a
-withDelay' nf = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
+withDelay' :: forall a. (a -> Int) -> (Either TimeoutId (Tuple TimeoutId a) -> Effect Unit) -> a -> Effect Unit
+withDelay' nf = go
   where
   go f value = launchAff_ do
     tid <- Avar.empty
@@ -45,15 +45,19 @@ withDelay' nf = (coerce :: (_ -> a -> _ Unit) -> _ -> _) go
     Avar.put o tid
     liftEffect $ f (Left o)
 
-withDelay :: forall a. Int -> Op (Effect Unit) (Either TimeoutId (Tuple TimeoutId a)) -> Op (Effect Unit) a
+withDelay :: forall a. Int -> (Either TimeoutId (Tuple TimeoutId a) -> Effect Unit) -> a -> Effect Unit
 withDelay = withDelay' <<< const
 
 -- | Create an event which fires every specified number of milliseconds.
-interval' :: forall a. (Op (Effect Unit) a -> Op (Effect Unit) Instant) -> Int -> Effect { event :: Event a, unsubscribe :: Effect Unit }
+interval'
+  :: forall a
+   . ((a -> Effect Unit) -> Instant -> Effect Unit)
+  -> Int
+  -> Effect { event :: Event a, unsubscribe :: Effect Unit }
 interval' f n = makeEventE \k -> do
   id <- setInterval n do
     time <- now
-    (coerce :: _ -> _ -> _ -> _ Unit) f k time
+    f k time
   pure (clearInterval id)
 
 interval

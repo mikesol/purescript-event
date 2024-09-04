@@ -5,9 +5,13 @@ module FRP.Event.Multiplex
 import Prelude
 
 import Data.Foldable (for_)
-import Data.Op (Op(..))
 import Effect (Effect)
 
-withMultiplexing :: forall a b. Array (Op (Effect Unit) b -> Op (Effect Unit) a) -> Op (Effect Unit) b -> Op (Effect Unit) a
-withMultiplexing l op = Op \a ->
-  for_ l \f -> let Op x = f op in x a
+withMultiplexing
+  :: forall a b
+   . Array ((b -> Effect Unit) -> a -> Effect Unit)
+  -> (b -> Effect Unit)
+  -> a
+  -> Effect Unit
+withMultiplexing l op = \a ->
+  for_ l \f -> let x = f op in x a

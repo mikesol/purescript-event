@@ -8,9 +8,9 @@ package:
       githubRepo: purescript-hyrule
   dependencies:
     - aff
+    - ansi
     - arrays
     - avar
-    - contravariant
     - control
     - datetime
     - effect
@@ -42,10 +42,11 @@ package:
     main: Test.Main
     dependencies:
       - aff
+      - contravariant
       - debug
-      - spec
-      - profunctor
       - js-date
+      - profunctor
+      - spec
 workspace:
   # WILL BREAK `spago test` with `purs-backend-es Unexpected argument: --run`
   # HOW IT WORKS: 1. it runs `purs compile` to make `.output/**/corefn.json` 2. it runs `purs-backend-es` to produce `.output-es`

@@ -4,9 +4,9 @@ workspace:
       path: ./
       dependencies:
         - aff
+        - ansi
         - arrays
         - avar
-        - contravariant
         - control
         - datetime
         - effect
@@ -36,6 +36,7 @@ workspace:
         - web-uievents
       test_dependencies:
         - aff
+        - contravariant
         - debug
         - js-date
         - profunctor
